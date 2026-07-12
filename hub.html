@@ -1,0 +1,550 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Universe Tree — the hub</title>
+<style>
+  :root{
+    /* a blaze of white light in an indifferent, icy dark. one accent, locked. */
+    --white:#ffffff; --ice:#9ecdff; --ice-deep:#5b8fd6;
+    --voice:#eef4ff;            /* the witness reads cool off-white */
+    --dim:rgba(224,235,255,.46);
+    --dim-2:rgba(224,235,255,.26);
+    --serif: Georgia, "Iowan Old Style", "Palatino Linotype", ui-serif, serif;
+    --sans: ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif;
+  }
+  *{box-sizing:border-box}
+  html,body{margin:0;height:100%;background:#02040e;overflow:hidden}
+  body{
+    min-height:100dvh; color:var(--voice);
+    font-family:var(--serif);
+    -webkit-font-smoothing:antialiased; text-rendering:optimizeLegibility;
+    -webkit-tap-highlight-color:transparent;
+  }
+  #world{position:fixed;inset:0;display:block;width:100vw;height:100dvh;touch-action:none}
+
+  /* ---- the voice layer: a thin diegetic overlay, most of it not interactive ---- */
+  #stage{
+    position:fixed;left:0;right:0;bottom:0;
+    /* sits in the dark foreground dunes, below the beam's bright base */
+    height:min(42dvh,380px);
+    display:flex;flex-direction:column;align-items:center;justify-content:flex-end;
+    gap:clamp(20px,4dvh,40px);
+    padding:0 24px max(28px,env(safe-area-inset-bottom)) 24px;
+    pointer-events:none;
+    transition:transform .9s cubic-bezier(.16,1,.3,1);
+  }
+
+  /* the witness's line */
+  #voice{
+    max-width:min(82vw,560px);text-align:center;
+    font-weight:300; font-size:clamp(19px,2.6vw,25px); line-height:1.55;
+    letter-spacing:.01em; color:var(--voice);
+    text-shadow:0 1px 2px rgba(0,8,24,.6), 0 0 28px rgba(158,205,255,.18);
+    opacity:0; transition:opacity 1.8s ease;
+    text-wrap:balance;
+  }
+  #voice.show{opacity:1}
+
+  /* the four ways to begin. words, not buttons. all equal. */
+  #types{
+    display:flex; flex-wrap:wrap; align-items:center; justify-content:center;
+    gap:clamp(18px,5vw,44px);
+    opacity:0; transition:opacity 1.4s ease; pointer-events:none;
+  }
+  #types.show{opacity:1;pointer-events:auto}
+  .type{
+    font-family:var(--serif); font-size:clamp(16px,2vw,19px); font-weight:300;
+    letter-spacing:.04em; color:var(--dim);
+    background:none;border:0;padding:6px 4px;margin:0;cursor:pointer;
+    transition:color .6s ease, text-shadow .6s ease, transform .6s ease;
+  }
+  .type:hover,.type:focus-visible{
+    color:var(--voice); text-shadow:0 0 22px rgba(158,205,255,.4);
+    outline:none; transform:translateY(-1px);
+  }
+  .type:focus-visible{color:var(--white)}
+
+  /* the writing surface: caret in the dark, no box */
+  #compose{
+    display:none; flex-direction:column; align-items:center; gap:18px;
+    width:min(88vw,600px);
+  }
+  #compose.show{display:flex}
+  #chosen{
+    font-family:var(--sans); font-size:11px; letter-spacing:.28em; text-transform:uppercase;
+    color:var(--dim-2); font-weight:500;
+  }
+  #ink{
+    width:100%; min-height:2.4em; max-height:34dvh; resize:none; overflow:auto;
+    background:transparent; border:0; outline:none;
+    color:var(--voice); font-family:var(--serif); font-weight:300;
+    font-size:clamp(18px,2.4vw,22px); line-height:1.6; text-align:center;
+    caret-color:var(--ice);
+  }
+  #ink::placeholder{color:var(--dim-2)}
+  #release{
+    font-family:var(--sans); font-size:12px; letter-spacing:.14em;
+    color:var(--dim); background:none;border:0;cursor:pointer;
+    opacity:0;transform:translateY(4px);
+    transition:opacity .5s ease, transform .5s ease, color .4s ease;
+    pointer-events:none;
+  }
+  #release.ready{opacity:1;transform:none;pointer-events:auto}
+  #release:hover,#release:focus-visible{color:var(--ice);outline:none}
+
+  /* the witness-star: a listening point, faint so the tree stays the light.
+     tapping it opens the quiet things (past entries, past trees, sound, account). */
+  #listen{
+    position:fixed;top:0;left:0;width:64px;height:64px;transform:translate(-50%,-50%);
+    border:0;background:none;cursor:pointer;padding:0;pointer-events:auto;
+    border-radius:50%;
+  }
+  #listen:focus-visible{outline:1px solid rgba(158,205,255,.4);outline-offset:2px}
+
+  /* mute: the only piece of true chrome. tiny, quiet, corner. */
+  #mute{
+    position:fixed;right:16px;bottom:max(14px,env(safe-area-inset-bottom));
+    font-family:var(--sans);font-size:10px;letter-spacing:.2em;text-transform:uppercase;
+    color:var(--dim-2);background:none;border:0;cursor:pointer;padding:6px;
+    transition:color .4s ease;pointer-events:auto;
+  }
+  #mute:hover,#mute:focus-visible{color:var(--dim);outline:none}
+
+  /* the quiet panel — tap the witness. no card, just text over a deepened void. */
+  #quiet{
+    position:fixed;inset:0;display:none;flex-direction:column;
+    background:radial-gradient(120% 90% at 50% 40%,rgba(4,5,10,.62),rgba(4,5,10,.92));
+    backdrop-filter:blur(3px);-webkit-backdrop-filter:blur(3px);
+    padding:max(48px,8dvh) 24px;opacity:0;transition:opacity .6s ease;pointer-events:none;
+  }
+  #quiet.show{display:flex;opacity:1;pointer-events:auto}
+  #quiet .inner{max-width:520px;margin:0 auto;width:100%}
+  #quiet h2{
+    font-family:var(--sans);font-weight:500;font-size:11px;letter-spacing:.3em;
+    text-transform:uppercase;color:var(--dim-2);margin:0 0 20px;
+  }
+  .past{
+    display:block;width:100%;text-align:left;background:none;border:0;cursor:pointer;
+    padding:15px 0;border-bottom:1px solid rgba(239,231,220,.07);
+    color:var(--voice);font-family:var(--serif);font-weight:300;
+  }
+  .past:hover,.past:focus-visible{outline:none}
+  .past:hover .p-text,.past:focus-visible .p-text{color:var(--white)}
+  .past .p-meta{
+    font-family:var(--sans);font-size:10px;letter-spacing:.18em;text-transform:uppercase;
+    color:var(--dim-2);display:block;margin-bottom:5px;
+  }
+  .past .p-text{font-size:16px;color:var(--dim);transition:color .4s ease}
+  #quiet .foot{margin-top:28px;display:flex;gap:26px;flex-wrap:wrap}
+  #quiet .foot button{
+    font-family:var(--sans);font-size:11px;letter-spacing:.16em;
+    color:var(--dim);background:none;border:0;cursor:pointer;padding:4px 0;
+    transition:color .4s ease;
+  }
+  #quiet .foot button:hover,#quiet .foot button:focus-visible{color:var(--ice);outline:none}
+  #close{
+    position:fixed;top:18px;right:20px;font-family:var(--sans);font-size:22px;line-height:1;
+    color:var(--dim);background:none;border:0;cursor:pointer;
+  }
+  #close:hover,#close:focus-visible{color:var(--voice);outline:none}
+
+  @media (max-width:560px){
+    #stage{height:min(52dvh,460px);gap:22px}
+  }
+  @media (prefers-reduced-motion:reduce){
+    #voice,#types,#release,#stage,#quiet{transition-duration:.001ms}
+  }
+</style>
+</head>
+<body>
+<canvas id="world"></canvas>
+
+<button id="listen" aria-label="The witness. Open past entries, past trees, and settings."></button>
+
+<div id="stage">
+  <p id="voice" role="status" aria-live="polite"></p>
+
+  <div id="types" role="group" aria-label="Begin an entry">
+    <button class="type" data-type="win">win</button>
+    <button class="type" data-type="failure">failure</button>
+    <button class="type" data-type="struggle">struggle</button>
+    <button class="type" data-type="vent">vent</button>
+  </div>
+
+  <div id="compose">
+    <div id="chosen" aria-hidden="true"></div>
+    <textarea id="ink" rows="1" aria-label="Write into the void" placeholder=""></textarea>
+    <button id="release">let it go</button>
+  </div>
+</div>
+
+<button id="mute">sound off</button>
+
+<div id="quiet" role="dialog" aria-modal="true" aria-label="The quiet things">
+  <button id="close" aria-label="Return to the tree">×</button>
+  <div class="inner">
+    <h2>What you have told the tree</h2>
+    <div id="pastlist"></div>
+    <div class="foot">
+      <button data-act="trees">past trees</button>
+      <button data-act="sound">sound</button>
+      <button data-act="account">account</button>
+    </div>
+  </div>
+</div>
+
+<script>
+'use strict';
+/* Universe Tree — the central hub.
+   Canvas renders the world (warm tree, cold stars, motes, the release).
+   The DOM above is the whisper-thin diegetic voice layer.
+   The tree render is intentionally light (recursive glow, not space-colonization);
+   the real build swaps in the deterministic PixiJS recipe. The DESIGN lives in
+   the moments: arrive -> offer -> write -> release -> witness. */
+
+const reduceMotion = matchMedia('(prefers-reduced-motion: reduce)').matches;
+const cv = document.getElementById('world');
+const ctx = cv.getContext('2d', { alpha:false });
+let W=0,H=0,DPR=1, groundY=0, baseX=0;
+function resize(){
+  DPR = Math.min(window.devicePixelRatio||1, 2);
+  W = window.innerWidth; H = window.innerHeight;
+  cv.width = W*DPR; cv.height = H*DPR;
+  ctx.setTransform(DPR,0,0,DPR,0,0);
+  groundY = H*0.62; baseX = W*0.5;
+  placeListen();
+}
+addEventListener('resize', resize);
+
+/* deterministic PRNG (this tree's fingerprint would be minted at planting) */
+function rng(seed){ let a=seed>>>0; return ()=>{ a|=0;a=(a+0x6D2B79F5)|0;
+  let t=Math.imul(a^(a>>>15),1|a); t=(t+Math.imul(t^(t>>>7),61|t))^t;
+  return ((t^(t>>>14))>>>0)/4294967296; }; }
+
+const SEED = 20260712;           // one fixed fingerprint for this hub view
+/* cold palette: a blaze of white light, iced blue at the edges, deep navy void */
+const white = (a)=>`rgba(255,255,255,${a})`;
+const ice   = (a)=>`rgba(158,205,255,${a})`;
+const STAR = {x:0.85, y:0.15};   // the witness's listening point (a clear dark corner)
+
+/* The tree is a BURST of light, not a branching trunk: fine filaments spray from
+   a blazing core, tapering to blue tips. Built once as relative polylines
+   (stable fingerprint); sway + shimmer fold in at draw. Reach scales to height. */
+let fils=[];
+function buildBurst(seed){
+  const r=rng(seed); const N=120; const arr=[];
+  for(let i=0;i<N;i++){
+    // fan biased upward: mostly up and to the sides, a few filaments droop down
+    const t=(r()*2-1);
+    const ang=-Math.PI/2 + Math.sign(t)*Math.pow(Math.abs(t),0.85)*Math.PI*1.02;
+    const len=0.45+r()*0.9;                 // relative to reach
+    const steps=10+((r()*8)|0);
+    const curl=(r()-0.5)*0.05;
+    const stepLen=len/steps;
+    const pts=[]; let x=0,y=0,a=ang;
+    for(let s=0;s<=steps;s++){
+      pts.push({x,y,w:1-s/steps});          // w: 1 at core, 0 at tip (taper + brightness)
+      a+=curl+(r()-0.5)*0.03;
+      x+=Math.cos(a)*stepLen; y+=Math.sin(a)*stepLen;
+    }
+    arr.push({pts, bright:0.55+r()*0.45, phase:r()*6.28, swf:0.4+r()*0.8});
+  }
+  return arr;
+}
+
+/* fields: cold stars near the horizon, icy spray rising from the base */
+let stars=[], motes=[], released=[];
+function seedFields(){
+  const r=rng(SEED^0x9e37); stars=[];
+  for(let i=0;i<150;i++) stars.push({x:r(),y:0.08+r()*0.5,z:0.2+r()*0.8,s:r()*1.3+0.3,tw:r()*6});
+  const r2=rng(SEED^0x51ed); motes=[];
+  for(let i=0;i<34;i++) motes.push({x:(r2()-0.5)*0.16,y:r2(),z:0.4+r2()*0.6,sp:0.03+r2()*0.05,ph:r2()*6});
+}
+
+/* ---------- render loop ---------- */
+let perfNow=0, pulse=0;
+function frame(now){
+  perfNow=now;
+  const breathe = reduceMotion?0:Math.sin(now*0.0007)*0.03;
+  const sway = reduceMotion?0:1;
+  const coreX = baseX + (reduceMotion?0:Math.sin(now*0.00016)*W*0.01);
+  const coreY = H*0.33;
+  const reach = H*0.42;
+  const glow=(1+breathe)*(1+pulse*0.7);
+
+  // void: deep navy, warming toward an icy horizon glow
+  const bg=ctx.createLinearGradient(0,0,0,groundY);
+  bg.addColorStop(0,'#02040e'); bg.addColorStop(0.62,'#051230'); bg.addColorStop(1,'#0c284f');
+  ctx.globalCompositeOperation='source-over'; ctx.fillStyle=bg; ctx.fillRect(0,0,W,groundY);
+
+  ctx.globalCompositeOperation='lighter';
+  // cold stars in the blue band
+  for(const st of stars){
+    const tw=reduceMotion?0.6:0.4+0.6*Math.abs(Math.sin(now*0.001+st.tw));
+    ctx.fillStyle=`rgba(200,222,255,${0.4*tw*st.z})`;
+    ctx.fillRect(st.x*W,st.y*groundY,st.s,st.s);
+  }
+
+  // ---- ground: glowing rippled dunes ----
+  ctx.globalCompositeOperation='source-over';
+  const gg=ctx.createLinearGradient(0,groundY,0,H);
+  gg.addColorStop(0,'#1b3e6b'); gg.addColorStop(0.4,'#12305c'); gg.addColorStop(1,'#081a3a');
+  ctx.fillStyle=gg; ctx.fillRect(0,groundY,W,H-groundY);
+  // light pooling on the dunes beneath the beam
+  ctx.globalCompositeOperation='lighter';
+  const rb=ctx.createRadialGradient(coreX,groundY,0,coreX,groundY,W*0.5);
+  rb.addColorStop(0,ice(0.30+pulse*0.2)); rb.addColorStop(0.5,ice(0.08)); rb.addColorStop(1,ice(0));
+  ctx.fillStyle=rb; ctx.fillRect(0,groundY-H*0.03,W,H-groundY+H*0.03);
+  // ripple crests, spaced by perspective, brightest near the horizon
+  const rows=15;
+  for(let i=0;i<rows;i++){
+    const f=i/rows;
+    const y=groundY+Math.pow(f,1.7)*(H-groundY);
+    const amp=3+f*20, wl=70+f*200;
+    const drift=reduceMotion?0:Math.sin(now*0.00018+i)*10;
+    ctx.strokeStyle=`rgba(${190+40*f|0},220,255,${0.05+0.11*(1-f)})`;
+    ctx.lineWidth=0.8+f*1.6;
+    ctx.beginPath();
+    for(let x=0;x<=W;x+=16){
+      const yy=y+Math.sin((x+drift)/wl*6.283+i)*amp - Math.sin(x/(wl*2)*6.283)*amp*0.6;
+      x===0?ctx.moveTo(x,yy):ctx.lineTo(x,yy);
+    }
+    ctx.stroke();
+  }
+
+  // ---- the light-column trunk: a soft beam pouring from core to ground ----
+  ctx.globalCompositeOperation='lighter';
+  for(let k=-24;k<=24;k++){
+    const spread=1 - Math.abs(k)/24;                       // brightest at center
+    const topX=coreX+k*W*0.006;
+    const botX=coreX+k*W*0.014;                            // widen toward the base
+    ctx.strokeStyle=white((0.02+0.10*spread*spread)*glow);
+    ctx.lineWidth=2.2;
+    ctx.beginPath(); ctx.moveTo(topX,coreY); ctx.lineTo(botX,groundY); ctx.stroke();
+  }
+
+  // ---- the burst of filaments ----
+  ctx.save(); ctx.translate(coreX,coreY); ctx.lineCap='round'; ctx.lineJoin='round';
+  for(const f of fils){
+    const sw=sway*f.swf;
+    let px=0,py=0;
+    for(let s=1;s<f.pts.length;s++){
+      const a=f.pts[s-1], b=f.pts[s];
+      const off=reduceMotion?0:Math.sin(now*0.0009*f.swf+f.phase+s*0.35)*sw*s;
+      const bx=b.x*reach+off, by=b.y*reach;
+      const w=b.w;
+      ctx.strokeStyle=`rgba(${205+50*w|0},${225+30*w|0},255,${(0.14+0.72*w)*f.bright*glow})`;
+      ctx.lineWidth=0.5+2.4*w;
+      ctx.beginPath(); ctx.moveTo(s===1?a.x*reach:px, s===1?a.y*reach:py); ctx.lineTo(bx,by); ctx.stroke();
+      px=bx; py=by;
+    }
+  }
+  ctx.restore();
+
+  // ---- the blazing core where trunk meets branches ----
+  const cb=ctx.createRadialGradient(coreX,coreY,0,coreX,coreY,W*0.13*(1+pulse*0.25));
+  cb.addColorStop(0,white(0.95*glow)); cb.addColorStop(0.25,white(0.55*glow));
+  cb.addColorStop(0.6,ice(0.22*glow)); cb.addColorStop(1,ice(0));
+  ctx.fillStyle=cb; ctx.beginPath();ctx.arc(coreX,coreY,W*0.13*(1+pulse*0.25),0,7);ctx.fill();
+
+  // ---- base spray + rising icy motes ----
+  const sp=ctx.createRadialGradient(coreX,groundY,0,coreX,groundY,W*0.14);
+  sp.addColorStop(0,white(0.35+pulse*0.2)); sp.addColorStop(1,white(0));
+  ctx.fillStyle=sp; ctx.beginPath();ctx.arc(coreX,groundY,W*0.14,0,7);ctx.fill();
+  for(const m of motes){
+    const t=reduceMotion?0.5:((now*0.001*m.sp+m.ph)%1);
+    const mx=coreX+m.x*W, my=groundY-t*H*0.5;
+    const a=Math.sin(t*Math.PI)*0.55*m.z;
+    ctx.fillStyle=ice(a*0.7); const s=1+m.z*1.4; ctx.fillRect(mx,my,s,s);
+  }
+  // released words -> motes climbing into the light
+  for(let i=released.length-1;i>=0;i--){
+    const p=released[i]; p.life-=0.006; p.y-=p.vy; p.x+=(coreX-p.x)*0.004+p.vx; p.vy*=1.002;
+    if(p.life<=0){ released.splice(i,1); continue; }
+    ctx.fillStyle=white(Math.max(0,p.life)*0.85);
+    const s=1.4+p.z*1.6; ctx.fillRect(p.x,p.y,s,s);
+  }
+  if(pulse>0) pulse*=0.94;
+
+  // the witness-star: one faint cool listening point in the dark corner
+  const lx=W*STAR.x, ly=H*STAR.y;
+  const lp=reduceMotion?0.6:0.5+0.5*Math.sin(now*0.0013);
+  const lg=ctx.createRadialGradient(lx,ly,0,lx,ly,24);
+  lg.addColorStop(0,`rgba(220,232,255,${0.5*lp})`);
+  lg.addColorStop(0.4,`rgba(150,180,255,${0.16*lp})`);
+  lg.addColorStop(1,'rgba(120,150,255,0)');
+  ctx.fillStyle=lg; ctx.beginPath();ctx.arc(lx,ly,24,0,7);ctx.fill();
+  ctx.fillStyle=`rgba(245,249,255,${0.85*lp})`; ctx.beginPath();ctx.arc(lx,ly,1.6,0,7);ctx.fill();
+
+  // vignette + a foreground scrim so the witness's words stay legible over the dunes
+  ctx.globalCompositeOperation='source-over';
+  const vg=ctx.createRadialGradient(W*0.5,H*0.42,H*0.30,W*0.5,H*0.5,H*0.95);
+  vg.addColorStop(0,'rgba(1,4,12,0)'); vg.addColorStop(1,'rgba(1,4,12,0.6)');
+  ctx.fillStyle=vg; ctx.fillRect(0,0,W,H);
+  const scrim=ctx.createLinearGradient(0,H*0.62,0,H);
+  scrim.addColorStop(0,'rgba(1,6,18,0)'); scrim.addColorStop(1,'rgba(1,6,18,0.5)');
+  ctx.fillStyle=scrim; ctx.fillRect(0,H*0.62,W,H*0.38);
+
+  requestAnimationFrame(frame);
+}
+
+let listenX=0,listenY=0;
+function placeListen(){
+  const b=document.getElementById('listen');
+  b.style.left = (W*STAR.x)+'px'; b.style.top=(H*STAR.y)+'px';
+}
+
+/* ---------- sound: off until a gesture, one soft tone on release ---------- */
+let audio=null, muted=true;
+function ensureAudio(){ if(!audio){ try{ audio=new (window.AudioContext||window.webkitAudioContext)(); }catch(e){} } }
+function tone(){
+  if(muted||!audio) return;
+  const o=audio.createOscillator(), g=audio.createGain();
+  o.type='sine'; o.frequency.value=196;             // a low, soft G
+  g.gain.setValueAtTime(0,audio.currentTime);
+  g.gain.linearRampToValueAtTime(0.12,audio.currentTime+0.08);
+  g.gain.exponentialRampToValueAtTime(0.0001,audio.currentTime+1.6);
+  o.connect(g).connect(audio.destination); o.start(); o.stop(audio.currentTime+1.7);
+}
+const muteBtn=document.getElementById('mute');
+function setMute(m){ muted=m; muteBtn.textContent = m?'sound off':'sound on'; }
+muteBtn.addEventListener('click',()=>{ ensureAudio(); if(audio&&audio.state==='suspended')audio.resume(); setMute(!muted); });
+
+/* ---------- the witness's lines (sample voice; real ones come from OpenRouter) ---------- */
+const NAME = 'Sam';   // templated per user; brief's {name}
+const WELCOME = `Welcome back, ${NAME}. Tell me your story.`;
+const AFTER = [                       // varied register, per invariant 8
+  'I saw that.',
+  'That was hard. You did it anyway.',
+  'You have circled this before. You are nearer to it now.',
+  'Two weeks ago this was ahead of you. Now it is behind.',
+  'A meteor passed while you wrote. It said nothing, and meant it kindly.',
+  'The universe is very loud tonight, and makes no sound.',
+];
+let afterIx=0;
+
+const voiceEl=document.getElementById('voice');
+const typesEl=document.getElementById('types');
+const composeEl=document.getElementById('compose');
+const chosenEl=document.getElementById('chosen');
+const inkEl=document.getElementById('ink');
+const releaseEl=document.getElementById('release');
+const stageEl=document.getElementById('stage');
+
+function say(text,hold){
+  voiceEl.classList.remove('show');
+  setTimeout(()=>{ voiceEl.textContent=text; voiceEl.classList.add('show'); }, 650);
+}
+
+/* ---------- states: arrive -> offer -> write -> release -> witness ---------- */
+let currentType=null;
+
+function toOffer(){
+  currentType=null;
+  composeEl.classList.remove('show');
+  say(WELCOME);
+  setTimeout(()=>typesEl.classList.add('show'), 1400);
+}
+
+function toWrite(type){
+  currentType=type;
+  typesEl.classList.remove('show');
+  voiceEl.classList.remove('show');
+  chosenEl.textContent=type;
+  inkEl.value='';
+  composeEl.classList.add('show');
+  autosize();
+  setTimeout(()=>inkEl.focus(), 300);
+}
+
+function toRelease(){
+  const text=inkEl.value.trim();
+  if(!text) return;
+  ensureAudio(); if(audio&&audio.state==='suspended')audio.resume();
+
+  // dissolve the words into motes rising toward the canopy
+  const rect=inkEl.getBoundingClientRect();
+  const cx=rect.left+rect.width/2, cy=rect.top+rect.height/2;
+  const count=Math.min(60, 14+Math.floor(text.length/2));
+  for(let i=0;i<count;i++){
+    released.push({
+      x:cx+(Math.random()-0.5)*rect.width*0.8,
+      y:cy+(Math.random()-0.5)*rect.height,
+      vx:(baseX-cx)/H*0.9 + (Math.random()-0.5)*0.4,
+      vy:1.4+Math.random()*2.2, z:Math.random(), life:1
+    });
+  }
+  pulse=1; tone();
+  // record it (in the real app: persist to Supabase, then the witness call)
+  ledger.unshift({type:currentType, text, day:'today'});
+
+  composeEl.classList.remove('show');
+  inkEl.blur();
+  // the tree takes it instantly; the witness answers a beat later
+  setTimeout(()=>{ afterIx=(afterIx+ (1+Math.floor(Math.random()*(AFTER.length-1))))%AFTER.length;
+    say(AFTER[afterIx]); }, 1300);
+  // then, quietly, the offer returns (no nag, just presence)
+  setTimeout(toOffer, 6800);
+}
+
+function autosize(){ inkEl.style.height='auto'; inkEl.style.height=Math.min(inkEl.scrollHeight, window.innerHeight*0.34)+'px'; }
+
+/* type words */
+typesEl.querySelectorAll('.type').forEach(b=>{
+  b.addEventListener('click',()=>toWrite(b.dataset.type));
+});
+/* writing */
+inkEl.addEventListener('input',()=>{
+  autosize();
+  releaseEl.classList.toggle('ready', inkEl.value.trim().length>0);
+});
+inkEl.addEventListener('keydown',e=>{
+  if(e.key==='Enter'&&(e.metaKey||e.ctrlKey)){ e.preventDefault(); toRelease(); }
+  if(e.key==='Escape'){ toOffer(); }
+});
+releaseEl.addEventListener('click',toRelease);
+/* lift the stage above the mobile keyboard when writing */
+inkEl.addEventListener('focus',()=>{ if(window.innerWidth<640) stageEl.style.transform='translateY(-14dvh)'; });
+inkEl.addEventListener('blur',()=>{ stageEl.style.transform=''; });
+
+/* ---------- tap the witness: the quiet things ---------- */
+const ledger=[
+  {type:'struggle', text:'The deadline moved again and I said yes when I meant no.', day:'2 days ago'},
+  {type:'win',      text:'Finished the thing I had been avoiding for a week.', day:'5 days ago'},
+  {type:'vent',     text:'No point to this one. Just needed to put it somewhere.', day:'6 days ago'},
+];
+const quiet=document.getElementById('quiet');
+const pastlist=document.getElementById('pastlist');
+function renderPast(){
+  pastlist.innerHTML='';
+  ledger.slice(0,8).forEach(e=>{
+    const b=document.createElement('button'); b.className='past';
+    b.innerHTML=`<span class="p-meta">${e.type} · ${e.day}</span><span class="p-text">${escapeHtml(e.text)}</span>`;
+    pastlist.appendChild(b);
+  });
+}
+function escapeHtml(s){return s.replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));}
+function openQuiet(){ renderPast(); quiet.classList.add('show'); }
+function closeQuiet(){ quiet.classList.remove('show'); }
+document.getElementById('listen').addEventListener('click',openQuiet);
+document.getElementById('close').addEventListener('click',closeQuiet);
+quiet.addEventListener('click',e=>{ if(e.target===quiet) closeQuiet(); });
+addEventListener('keydown',e=>{ if(e.key==='Escape'&&quiet.classList.contains('show')) closeQuiet(); });
+quiet.querySelectorAll('.foot button').forEach(b=>{
+  b.addEventListener('click',()=>{ if(b.dataset.act==='sound'){ ensureAudio(); if(audio&&audio.state==='suspended')audio.resume(); setMute(!muted); } });
+});
+
+/* ---------- boot: arrive in silence, then the witness speaks ---------- */
+function boot(){
+  resize(); fils=buildBurst(SEED); seedFields();
+  requestAnimationFrame(frame);
+  setMute(true);
+  // arrival: dark, tree, silence. the offer comes after a held beat.
+  setTimeout(toOffer, reduceMotion?400:2600);
+}
+boot();
+</script>
+</body>
+</html>
