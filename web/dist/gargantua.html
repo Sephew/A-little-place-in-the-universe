@@ -1,0 +1,814 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Gargantua</title>
+<style>
+  html, body { margin:0; padding:0; height:100%; background:#000; overflow:hidden; }
+  canvas { display:block; width:100vw; height:100vh; touch-action:none; }
+  #hint {
+    position:fixed; left:50%; bottom:max(20px, env(safe-area-inset-bottom));
+    transform:translateX(-50%);
+    color:rgba(255,255,255,0.35); font:12px/1 system-ui, sans-serif;
+    letter-spacing:0.18em; text-transform:uppercase;
+    pointer-events:none; opacity:0; transition:opacity 1.2s ease;
+  }
+  #hint.show { opacity:1; }
+  #debug {
+    position:fixed; top:8px; left:8px; color:#7f7; background:rgba(0,0,0,0.5);
+    font:11px/1.5 monospace; padding:6px 8px; white-space:pre; display:none;
+    pointer-events:none;
+  }
+  #fail {
+    position:fixed; inset:0; display:none; align-items:center; justify-content:center;
+    color:rgba(255,255,255,0.7); font:14px/1.6 system-ui, sans-serif; text-align:center;
+    padding:24px;
+  }
+</style>
+</head>
+<body>
+<canvas id="c"></canvas>
+<div id="hint">drag to orbit</div>
+<div id="debug"></div>
+<div id="fail">This visual needs WebGL2 with floating-point render targets,<br>which this browser or device doesn't support.</div>
+
+<script>
+'use strict';
+/* ============================================================
+   Gargantua — WebGL2 port of sonicether's Shadertoy lstSRS
+   (CC BY-NC-SA 3.0, original by Cody "sonicether" Darr)
+
+   Pipeline:
+     A  render pass    -> half-float, renderScale * canvas, ping-pong (TAA)
+     B  bloom chain    -> 8 progressively halved levels, box downsample
+     C  gaussian blur  -> H + V per level (original kernel)
+     D  composite      -> scene + weighted bicubic bloom, tonemap
+   The original's mip-atlas + 256-tap oversampling is replaced by a
+   real downsample chain, which is equivalent and far cheaper.
+   ============================================================ */
+
+const BARK_DATA_URI = "data:image/jpeg;base64,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";
+
+/* ---------- quality tiers ---------- */
+const TIERS = [
+  { dprCap: 1.5, scale: 1.0,  iters: 200, fpsCap: 0,  drift: false, freeze: false },
+  { dprCap: 1.0, scale: 0.75, iters: 110, fpsCap: 0,  drift: true,  freeze: false },
+  { dprCap: 1.0, scale: 0.5,  iters: 60,  fpsCap: 30, drift: false, freeze: false },
+  { dprCap: 1.0, scale: 0.5,  iters: 60,  fpsCap: 30, drift: false, freeze: true  },
+];
+const BLOOM_LEVELS = 8;
+const BLOOM_WEIGHTS = [1.0, 1.5, 1.0, 1.5, 1.8, 1.0, 1.0, 1.0];
+
+/* ---------- shaders ---------- */
+const VS = `#version 300 es
+void main(){
+  vec2 p = vec2(float((gl_VertexID << 1) & 2), float(gl_VertexID & 2));
+  gl_Position = vec4(p * 2.0 - 1.0, 0.0, 1.0);
+}`;
+
+/* Buffer A — the actual render (faithful port) */
+const RENDER_FS = `#version 300 es
+precision highp float;
+precision highp int;
+
+uniform vec2  iResolution;   // render buffer resolution
+uniform float iTime;
+uniform vec2  uMouse;        // normalized [0,1], (0,0) = never touched
+uniform float uDragging;     // 1 while pointer held (Shadertoy iMouse.z > 1)
+uniform float uBlend;        // TAA history weight when not dragging
+uniform int   uIters;
+uniform sampler2D uNoise;    // 256x256 RGBA, g = r shifted (iq layout)
+uniform sampler2D uDust;     // bark/organic color texture
+uniform sampler2D uPrev;     // previous frame (TAA history)
+
+out vec4 fragColor;
+
+const vec3 MainColor = vec3(1.0);
+const float pi = 3.14159265;
+
+float fIters() { return float(uIters); }
+
+// noise code by iq
+float noise( in vec3 x )
+{
+    vec3 p = floor(x);
+    vec3 f = fract(x);
+    f = f*f*(3.0-2.0*f);
+    vec2 uv = (p.xy+vec2(37.0,17.0)*p.z) + f.xy;
+    vec2 rg = textureLod( uNoise, (uv+ 0.5)/256.0, 0.0 ).yx;
+    return -1.0+2.0*mix( rg.x, rg.y, f.z );
+}
+
+float saturate(float x) { return clamp(x, 0.0, 1.0); }
+vec3  saturate(vec3 x)  { return clamp(x, vec3(0.0), vec3(1.0)); }
+
+float rand(vec2 coord)
+{
+    return saturate(fract(sin(dot(coord, vec2(12.9898, 78.223))) * 43758.5453));
+}
+
+float pcurve( float x, float a, float b )
+{
+    float k = pow(a+b,a+b) / (pow(a,a)*pow(b,b));
+    return k * pow( x, a ) * pow( 1.0-x, b );
+}
+
+float atan2(float y, float x)
+{
+    if (x > 0.0)       return atan(y / x);
+    else if (x == 0.0) return y > 0.0 ? pi/2.0 : (y < 0.0 ? -pi/2.0 : 0.0);
+    else               return y >= 0.0 ? atan(y/x) + pi : atan(y/x) - pi;
+}
+
+float sdTorus(vec3 p, vec2 t)
+{
+    vec2 q = vec2(length(p.xz) - t.x, p.y);
+    return length(q)-t.y;
+}
+
+void Haze(inout vec3 color, vec3 pos, float alpha)
+{
+    vec2 t = vec2(1.0, 0.01);
+    float torusDist = length(sdTorus(pos + vec3(0.0, -0.05, 0.0), t));
+    float bloomDisc = 1.0 / (pow(torusDist, 2.0) + 0.001);
+    vec3 col = MainColor;
+    bloomDisc *= length(pos) < 0.5 ? 0.0 : 1.0;
+    color += col * bloomDisc * (2.9 / fIters()) * (1.0 - alpha * 1.0);
+}
+
+void GasDisc(inout vec3 color, inout float alpha, vec3 pos)
+{
+    float discRadius = 3.2;
+    float discWidth = 5.3;
+    float discInner = discRadius - discWidth * 0.5;
+
+    vec3 origin = vec3(0.0);
+    vec3 discNormal = normalize(vec3(0.0, 1.0, 0.0));
+    float discThickness = 0.1;
+
+    float distFromCenter = distance(pos, origin);
+    float distFromDisc = dot(discNormal, pos - origin);
+
+    float radialGradient = 1.0 - saturate((distFromCenter - discInner) / discWidth * 0.5);
+
+    float coverage = pcurve(radialGradient, 4.0, 0.9);
+
+    discThickness *= radialGradient;
+    coverage *= saturate(1.0 - abs(distFromDisc) / discThickness);
+
+    vec3 dustColorLit = MainColor;
+
+    float dustGlow = 1.0 / (pow(1.0 - radialGradient, 2.0) * 290.0 + 0.002);
+    vec3 dustColor = dustColorLit * dustGlow * 8.2;
+
+    coverage = saturate(coverage * 0.7);
+
+    float fade = pow((abs(distFromCenter - discInner) + 0.4), 4.0) * 0.04;
+    float bloomFactor = 1.0 / (pow(distFromDisc, 2.0) * 40.0 + fade + 0.00002);
+    vec3 b = dustColorLit * pow(bloomFactor, 1.5);
+
+    b *= mix(vec3(1.7, 1.1, 1.0), vec3(0.5, 0.6, 1.0), vec3(pow(radialGradient, 2.0)));
+    b *= mix(vec3(1.7, 0.5, 0.1), vec3(1.0), vec3(pow(radialGradient, 0.5)));
+
+    dustColor = mix(dustColor, b * 150.0, saturate(1.0 - coverage * 1.0));
+    coverage = saturate(coverage + bloomFactor * bloomFactor * 0.1);
+
+    if (coverage < 0.01)
+    {
+        return;
+    }
+
+    vec3 radialCoords;
+    radialCoords.x = distFromCenter * 1.5 + 0.55;
+    radialCoords.y = atan2(-pos.x, -pos.z) * 1.5;
+    radialCoords.z = distFromDisc * 1.5;
+
+    radialCoords *= 0.95;
+
+    float speed = 0.06;
+
+    float noise1 = 1.0;
+    vec3 rc = radialCoords + 0.0;               rc.y += iTime * speed;
+    noise1 *= noise(rc * 3.0) * 0.5 + 0.5;      rc.y -= iTime * speed;
+    noise1 *= noise(rc * 6.0) * 0.5 + 0.5;      rc.y += iTime * speed;
+    noise1 *= noise(rc * 12.0) * 0.5 + 0.5;     rc.y -= iTime * speed;
+    noise1 *= noise(rc * 24.0) * 0.5 + 0.5;     rc.y += iTime * speed;
+
+    float noise2 = 2.0;
+    rc = radialCoords + 30.0;
+    noise2 *= noise(rc * 3.0) * 0.5 + 0.5;      rc.y += iTime * speed;
+    noise2 *= noise(rc * 6.0) * 0.5 + 0.5;      rc.y -= iTime * speed;
+    noise2 *= noise(rc * 12.0) * 0.5 + 0.5;     rc.y += iTime * speed;
+    noise2 *= noise(rc * 24.0) * 0.5 + 0.5;     rc.y -= iTime * speed;
+    noise2 *= noise(rc * 48.0) * 0.5 + 0.5;     rc.y += iTime * speed;
+    noise2 *= noise(rc * 92.0) * 0.5 + 0.5;     rc.y -= iTime * speed;
+
+    dustColor *= noise1 * 0.998 + 0.002;
+    coverage *= noise2;
+
+    radialCoords.y += iTime * speed * 0.5;
+
+    dustColor *= pow(texture(uDust, radialCoords.yx * vec2(0.15, 0.27)).rgb, vec3(2.0)) * 4.0;
+
+    coverage = saturate(coverage * 1200.0 / fIters());
+    dustColor = max(vec3(0.0), dustColor);
+
+    coverage *= pcurve(radialGradient, 4.0, 0.9);
+
+    color = (1.0 - alpha) * dustColor * coverage + color;
+    alpha = (1.0 - alpha) * coverage + alpha;
+}
+
+vec3 rotate(vec3 p, float x, float y, float z)
+{
+    mat3 matx = mat3(1.0, 0.0, 0.0,
+                     0.0, cos(x), sin(x),
+                     0.0, -sin(x), cos(x));
+    mat3 maty = mat3(cos(y), 0.0, -sin(y),
+                     0.0, 1.0, 0.0,
+                     sin(y), 0.0, cos(y));
+    mat3 matz = mat3(cos(z), sin(z), 0.0,
+                     -sin(z), cos(z), 0.0,
+                     0.0, 0.0, 1.0);
+    p = matx * p;
+    p = matz * p;
+    p = maty * p;
+    return p;
+}
+
+void RotateCamera(inout vec3 eyevec, inout vec3 eyepos)
+{
+    float mousePosY = uMouse.y;
+    float mousePosX = uMouse.x;
+
+    vec3 angle = vec3(mousePosY * 0.05 + 0.05, 1.0 + mousePosX * 1.0, -0.45);
+
+    eyevec = rotate(eyevec, angle.x, angle.y, angle.z);
+    eyepos = rotate(eyepos, angle.x, angle.y, angle.z);
+}
+
+void WarpSpace(inout vec3 eyevec, inout vec3 raypos)
+{
+    vec3 origin = vec3(0.0);
+
+    float singularityDist = distance(raypos, origin);
+    float warpFactor = 1.0 / (pow(singularityDist, 2.0) + 0.000001);
+
+    vec3 singularityVector = normalize(origin - raypos);
+
+    float warpAmount = 5.0;
+
+    eyevec = normalize(eyevec + singularityVector * warpFactor * warpAmount / fIters());
+}
+
+void main()
+{
+    vec2 fragCoord = gl_FragCoord.xy;
+    vec2 uv = fragCoord / iResolution.xy;
+
+    float aspect = iResolution.x / iResolution.y;
+
+    float taaOn = 1.0 - uDragging;   // Shadertoy: (iMouse.z > 1.0 ? 0.0 : 1.0)
+
+    vec2 uveye = uv;
+    uveye.x += (rand(uv + sin(iTime * 1.0)) / iResolution.x) * taaOn;
+    uveye.y += (rand(uv + 1.0 + sin(iTime * 1.0)) / iResolution.y) * taaOn;
+
+    vec3 eyevec = normalize(vec3((uveye * 2.0 - 1.0) * vec2(aspect, 1.0), 6.0));
+    vec3 eyepos = vec3(0.0, -0.0, -10.0);
+
+    vec2 mousepos = uMouse;
+    if (mousepos.x == 0.0)
+    {
+        mousepos.x = 0.35;
+    }
+    eyepos.x += mousepos.x * 3.0 - 1.5;
+
+    const float far = 15.0;
+
+    RotateCamera(eyevec, eyepos);
+
+    vec3 color = vec3(0.0);
+
+    float dither = rand(uv + sin(iTime * 1.0) * taaOn) * 2.0;
+
+    float alpha = 0.0;
+    vec3 raypos = eyepos + eyevec * dither * far / fIters();
+    for (int i = 0; i < uIters; i++)
+    {
+        WarpSpace(eyevec, raypos);
+        raypos += eyevec * far / fIters();
+        GasDisc(color, alpha, raypos);
+        Haze(color, raypos, alpha);
+    }
+
+    color *= 0.0001;
+
+    // Temporal accumulation (p == 1.0 in the original, so the pows are identity)
+    vec3 previous = texture(uPrev, uv).rgb;
+    float blendWeight = uBlend * taaOn;
+    color = mix(color, previous, blendWeight);
+
+    fragColor = vec4(saturate(color), 1.0);
+}`;
+
+/* Box downsample (replaces the atlas oversampling) */
+const DOWN_FS = `#version 300 es
+precision highp float;
+uniform sampler2D uTex;
+uniform vec2 uOutRes;
+out vec4 fragColor;
+void main(){
+  vec2 uv = gl_FragCoord.xy / uOutRes;
+  vec2 ts = 1.0 / vec2(textureSize(uTex, 0));
+  vec3 c = vec3(0.0);
+  c += texture(uTex, uv + ts * vec2(-0.5, -0.5)).rgb;
+  c += texture(uTex, uv + ts * vec2( 0.5, -0.5)).rgb;
+  c += texture(uTex, uv + ts * vec2(-0.5,  0.5)).rgb;
+  c += texture(uTex, uv + ts * vec2( 0.5,  0.5)).rgb;
+  fragColor = vec4(c * 0.25, 1.0);
+}`;
+
+/* Separable gaussian, original kernel (half-offset trick preserved) */
+const BLUR_FS = `#version 300 es
+precision highp float;
+uniform sampler2D uTex;
+uniform vec2 uOutRes;
+uniform vec2 uDir;         // (1,0) or (0,1)
+out vec4 fragColor;
+void main(){
+  float weights[5];
+  float offsets[5];
+  weights[0] = 0.19638062; weights[1] = 0.29675293; weights[2] = 0.09442139;
+  weights[3] = 0.01037598; weights[4] = 0.00025940;
+  offsets[0] = 0.00000000; offsets[1] = 1.41176471; offsets[2] = 3.29411765;
+  offsets[3] = 5.17647059; offsets[4] = 7.05882353;
+
+  vec2 uv = gl_FragCoord.xy / uOutRes;
+  vec3 color = texture(uTex, uv).rgb * weights[0];
+  float weightSum = weights[0];
+  for (int i = 1; i < 5; i++) {
+    vec2 off = (offsets[i] / uOutRes) * uDir * 0.5;
+    color += texture(uTex, uv + off).rgb * weights[i];
+    color += texture(uTex, uv - off).rgb * weights[i];
+    weightSum += weights[i] * 2.0;
+  }
+  fragColor = vec4(color / weightSum, 1.0);
+}`;
+
+/* Final composite: scene + bicubic bloom, tonemap (faithful port) */
+const COMPOSITE_FS = `#version 300 es
+precision highp float;
+uniform sampler2D uScene;
+uniform sampler2D uB0; uniform sampler2D uB1; uniform sampler2D uB2; uniform sampler2D uB3;
+uniform sampler2D uB4; uniform sampler2D uB5; uniform sampler2D uB6; uniform sampler2D uB7;
+uniform vec2 uOutRes;
+out vec4 fragColor;
+
+vec3 saturate(vec3 x) { return clamp(x, vec3(0.0), vec3(1.0)); }
+
+vec4 cubic(float x)
+{
+    float x2 = x * x;
+    float x3 = x2 * x;
+    vec4 w;
+    w.x =   -x3 + 3.0*x2 - 3.0*x + 1.0;
+    w.y =  3.0*x3 - 6.0*x2       + 4.0;
+    w.z = -3.0*x3 + 3.0*x2 + 3.0*x + 1.0;
+    w.w =  x3;
+    return w / 6.0;
+}
+
+vec3 BicubicTexture(sampler2D tex, vec2 coord)
+{
+    vec2 resolution = vec2(textureSize(tex, 0));
+    coord *= resolution;
+    float fx = fract(coord.x);
+    float fy = fract(coord.y);
+    coord.x -= fx;
+    coord.y -= fy;
+    fx -= 0.5;
+    fy -= 0.5;
+    vec4 xcubic = cubic(fx);
+    vec4 ycubic = cubic(fy);
+    vec4 c = vec4(coord.x - 0.5, coord.x + 1.5, coord.y - 0.5, coord.y + 1.5);
+    vec4 s = vec4(xcubic.x + xcubic.y, xcubic.z + xcubic.w, ycubic.x + ycubic.y, ycubic.z + ycubic.w);
+    vec4 offset = c + vec4(xcubic.y, xcubic.w, ycubic.y, ycubic.w) / s;
+    vec3 sample0 = texture(tex, vec2(offset.x, offset.z) / resolution).rgb;
+    vec3 sample1 = texture(tex, vec2(offset.y, offset.z) / resolution).rgb;
+    vec3 sample2 = texture(tex, vec2(offset.x, offset.w) / resolution).rgb;
+    vec3 sample3 = texture(tex, vec2(offset.y, offset.w) / resolution).rgb;
+    float sx = s.x / (s.x + s.y);
+    float sy = s.z / (s.z + s.w);
+    return mix( mix(sample3, sample2, sx), mix(sample1, sample0, sx), sy);
+}
+
+vec3 GetBloom(vec2 uv)
+{
+    vec3 bloom = vec3(0.0);
+    bloom += BicubicTexture(uB0, uv) * 1.0;
+    bloom += BicubicTexture(uB1, uv) * 1.5;
+    bloom += BicubicTexture(uB2, uv) * 1.0;
+    bloom += BicubicTexture(uB3, uv) * 1.5;
+    bloom += BicubicTexture(uB4, uv) * 1.8;
+    bloom += BicubicTexture(uB5, uv) * 1.0;
+    bloom += BicubicTexture(uB6, uv) * 1.0;
+    bloom += BicubicTexture(uB7, uv) * 1.0;
+    return bloom;
+}
+
+void main()
+{
+    vec2 uv = gl_FragCoord.xy / uOutRes;
+
+    vec3 color = texture(uScene, uv).rgb;
+
+    color += GetBloom(uv) * 0.08;
+
+    color *= 200.0;
+
+    // Tonemapping and color grading
+    color = pow(color, vec3(1.5));
+    color = color / (1.0 + color);
+    color = pow(color, vec3(1.0 / 1.5));
+
+    color = mix(color, color * color * (3.0 - 2.0 * color), vec3(1.0));
+    color = pow(color, vec3(1.3, 1.20, 1.0));
+    color = saturate(color * 1.01);
+
+    color = pow(color, vec3(0.7 / 2.2));
+    fragColor = vec4(color, 1.0);
+}`;
+
+/* ---------- boilerplate ---------- */
+const canvas = document.getElementById('c');
+const debugEl = document.getElementById('debug');
+const hintEl = document.getElementById('hint');
+const failEl = document.getElementById('fail');
+
+const params = new URLSearchParams(location.search);
+const DEBUG = params.has('debug');
+if (DEBUG) debugEl.style.display = 'block';
+
+const gl = canvas.getContext('webgl2', {
+  antialias: false, alpha: false, depth: false, stencil: false,
+  powerPreference: 'high-performance', preserveDrawingBuffer: false,
+});
+
+function fail() { failEl.style.display = 'flex'; canvas.style.display = 'none'; }
+
+if (!gl) { fail(); throw new Error('no webgl2'); }
+const extCBF = gl.getExtension('EXT_color_buffer_float');
+const extCBHF = gl.getExtension('EXT_color_buffer_half_float');
+if (!extCBF && !extCBHF) { fail(); throw new Error('no float render targets'); }
+
+function compile(type, src) {
+  const s = gl.createShader(type);
+  gl.shaderSource(s, src);
+  gl.compileShader(s);
+  if (!gl.getShaderParameter(s, gl.COMPILE_STATUS)) {
+    console.error(gl.getShaderInfoLog(s), src);
+    throw new Error('shader compile failed');
+  }
+  return s;
+}
+function program(fsSrc) {
+  const p = gl.createProgram();
+  gl.attachShader(p, compile(gl.VERTEX_SHADER, VS));
+  gl.attachShader(p, compile(gl.FRAGMENT_SHADER, fsSrc));
+  gl.linkProgram(p);
+  if (!gl.getProgramParameter(p, gl.LINK_STATUS)) {
+    console.error(gl.getProgramInfoLog(p));
+    throw new Error('link failed');
+  }
+  const uniforms = {};
+  const n = gl.getProgramParameter(p, gl.ACTIVE_UNIFORMS);
+  for (let i = 0; i < n; i++) {
+    const info = gl.getActiveUniform(p, i);
+    uniforms[info.name] = gl.getUniformLocation(p, info.name);
+  }
+  return { p, u: uniforms };
+}
+
+const progRender = program(RENDER_FS);
+const progDown = program(DOWN_FS);
+const progBlur = program(BLUR_FS);
+const progComposite = program(COMPOSITE_FS);
+
+const vao = gl.createVertexArray(); // empty; vertices from gl_VertexID
+gl.bindVertexArray(vao);
+
+/* ---------- static textures ---------- */
+/* iq's RGBA noise layout: green(x,y) = red(x-37, y-17), so that the
+   z-slice interpolation in noise() is continuous. */
+function makeNoiseTexture() {
+  const N = 256;
+  const R = new Uint8Array(N * N);
+  for (let i = 0; i < R.length; i++) R[i] = (Math.random() * 256) | 0;
+  const data = new Uint8Array(N * N * 4);
+  for (let y = 0; y < N; y++) {
+    for (let x = 0; x < N; x++) {
+      const i = (y * N + x) * 4;
+      data[i]     = R[y * N + x];
+      data[i + 1] = R[((y - 17 + N) & 255) * N + ((x - 37 + N) & 255)];
+      data[i + 2] = (Math.random() * 256) | 0;
+      data[i + 3] = (Math.random() * 256) | 0;
+    }
+  }
+  const t = gl.createTexture();
+  gl.bindTexture(gl.TEXTURE_2D, t);
+  gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA8, N, N, 0, gl.RGBA, gl.UNSIGNED_BYTE, data);
+  gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR);
+  gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
+  gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.REPEAT);
+  gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.REPEAT);
+  return t;
+}
+const noiseTex = makeNoiseTexture();
+
+/* Dust texture: starts as neutral gray so the scene renders immediately,
+   swapped for the bark image once it decodes. */
+const dustTex = gl.createTexture();
+gl.bindTexture(gl.TEXTURE_2D, dustTex);
+gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA8, 1, 1, 0, gl.RGBA, gl.UNSIGNED_BYTE,
+              new Uint8Array([150, 140, 125, 255]));
+gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR);
+gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
+gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.REPEAT);
+gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.REPEAT);
+{
+  const img = new Image();
+  img.onload = () => {
+    gl.bindTexture(gl.TEXTURE_2D, dustTex);
+    gl.pixelStorei(gl.UNPACK_FLIP_Y_WEBGL, true);
+    gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA8, gl.RGBA, gl.UNSIGNED_BYTE, img);
+    gl.pixelStorei(gl.UNPACK_FLIP_Y_WEBGL, false);
+    gl.generateMipmap(gl.TEXTURE_2D);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR_MIPMAP_LINEAR);
+    state.resetAccum = true;
+  };
+  img.src = BARK_DATA_URI;
+}
+
+/* ---------- render targets ---------- */
+function makeTarget(w, h) {
+  const t = gl.createTexture();
+  gl.bindTexture(gl.TEXTURE_2D, t);
+  gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA16F, w, h, 0, gl.RGBA, gl.HALF_FLOAT, null);
+  gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR);
+  gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
+  gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
+  gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
+  const f = gl.createFramebuffer();
+  gl.bindFramebuffer(gl.FRAMEBUFFER, f);
+  gl.framebufferTexture2D(gl.FRAMEBUFFER, gl.COLOR_ATTACHMENT0, gl.TEXTURE_2D, t, 0);
+  const ok = gl.checkFramebufferStatus(gl.FRAMEBUFFER) === gl.FRAMEBUFFER_COMPLETE;
+  gl.bindFramebuffer(gl.FRAMEBUFFER, null);
+  if (!ok) { fail(); throw new Error('fbo incomplete'); }
+  return { tex: t, fbo: f, w, h };
+}
+function delTarget(t) { gl.deleteTexture(t.tex); gl.deleteFramebuffer(t.fbo); }
+
+/* ---------- state ---------- */
+const coarse = window.matchMedia('(pointer: coarse)').matches;
+const reducedMotion = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+
+let tier = params.has('tier')
+  ? Math.max(0, Math.min(3, parseInt(params.get('tier'), 10) || 0))
+  : (coarse ? 1 : 0);
+if (reducedMotion) tier = 3;
+const tierForced = params.has('tier');
+
+const state = {
+  ping: null, pong: null,           // buffer A ping-pong
+  bloomD: [], bloomT: [],           // per-level downsample + blur-temp targets
+  renderW: 0, renderH: 0,
+  mouse: [0, 0],                    // normalized, (0,0) = untouched (Shadertoy default)
+  dragging: false,
+  frame: 0,
+  resetAccum: false,
+  frozen: false,
+  lastDraw: 0,
+  t0: performance.now(),
+  // auto-tier measurement
+  dts: [], lastT: 0, stepdowns: 0, measureStart: 30,
+};
+
+function rebuild() {
+  const T = TIERS[tier];
+  const dpr = Math.min(window.devicePixelRatio || 1, T.dprCap);
+  const cw = Math.max(1, Math.round(canvas.clientWidth * dpr));
+  const ch = Math.max(1, Math.round(canvas.clientHeight * dpr));
+  canvas.width = cw;
+  canvas.height = ch;
+
+  const rw = Math.max(1, Math.round(cw * T.scale));
+  const rh = Math.max(1, Math.round(ch * T.scale));
+  state.renderW = rw; state.renderH = rh;
+
+  if (state.ping) { delTarget(state.ping); delTarget(state.pong); }
+  state.bloomD.forEach(delTarget); state.bloomT.forEach(delTarget);
+  state.ping = makeTarget(rw, rh);
+  state.pong = makeTarget(rw, rh);
+  state.bloomD = []; state.bloomT = [];
+  let w = rw, h = rh;
+  for (let i = 0; i < BLOOM_LEVELS; i++) {
+    w = Math.max(1, w >> 1); h = Math.max(1, h >> 1);
+    state.bloomD.push(makeTarget(w, h));
+    state.bloomT.push(makeTarget(w, h));
+  }
+  state.resetAccum = true;
+  state.frozen = false;
+  state.frame = 0;
+}
+
+/* ---------- input ---------- */
+if (!coarse) hintEl.classList.add('show');
+setTimeout(() => hintEl.classList.remove('show'), 5000);
+
+function setMouseFromEvent(e) {
+  const r = canvas.getBoundingClientRect();
+  const x = (e.clientX - r.left) / r.width;
+  const y = 1.0 - (e.clientY - r.top) / r.height;
+  state.mouse = [Math.min(1, Math.max(0.001, x)), Math.min(1, Math.max(0, y))];
+}
+if (!coarse && !reducedMotion) {
+  canvas.addEventListener('pointerdown', (e) => {
+    state.dragging = true;
+    canvas.setPointerCapture(e.pointerId);
+    setMouseFromEvent(e);
+    hintEl.classList.remove('show');
+    wake();
+  });
+  canvas.addEventListener('pointermove', (e) => {
+    if (state.dragging) setMouseFromEvent(e);
+  });
+  const up = () => { state.dragging = false; };
+  canvas.addEventListener('pointerup', up);
+  canvas.addEventListener('pointercancel', up);
+}
+
+/* ---------- frame ---------- */
+function draw(now) {
+  if (state.frozen) { running = false; return; }
+  requestAnimationFrame(draw);
+
+  const T = TIERS[tier];
+
+  // fps cap
+  if (T.fpsCap) {
+    const minDt = 1000 / T.fpsCap - 2;
+    if (now - state.lastDraw < minDt) return;
+  }
+  state.lastDraw = now;
+
+  // auto tier-down (skip if tier was forced by query param)
+  if (!tierForced && state.stepdowns < 2 && tier < 2) {
+    if (state.frame > state.measureStart) {
+      if (state.lastT) state.dts.push(Math.min(now - state.lastT, 100));
+      if (state.dts.length >= 50) {
+        const avg = state.dts.reduce((a, b) => a + b, 0) / state.dts.length;
+        state.dts = [];
+        if (avg > 22) {
+          tier = Math.min(tier + 1, 2);
+          state.stepdowns++;
+          state.measureStart = 30;
+          rebuild();
+          state.lastT = 0;
+          return;
+        }
+      }
+    }
+    state.lastT = now;
+  }
+
+  const t = reducedMotion ? 12.0 : (now - state.t0) / 1000;
+
+  // camera source
+  let mouse = state.mouse;
+  let dragging = state.dragging ? 1 : 0;
+  let blend = 0.9;
+  if (T.drift && !reducedMotion) {
+    mouse = [0.35 + 0.08 * Math.sin(t * 0.05), 0.15 + 0.08 * Math.sin(t * 0.032 + 1.7)];
+    blend = 0.85;
+  } else if (coarse || T.freeze) {
+    mouse = [0.35, 0.15];
+  }
+  if (state.resetAccum) { blend = 0; state.resetAccum = false; }
+
+  const prev = state.ping, curr = state.pong;
+
+  /* --- pass 1: render (buffer A) --- */
+  gl.bindFramebuffer(gl.FRAMEBUFFER, curr.fbo);
+  gl.viewport(0, 0, curr.w, curr.h);
+  gl.useProgram(progRender.p);
+  gl.uniform2f(progRender.u.iResolution, curr.w, curr.h);
+  gl.uniform1f(progRender.u.iTime, t);
+  gl.uniform2f(progRender.u.uMouse, mouse[0], mouse[1]);
+  gl.uniform1f(progRender.u.uDragging, dragging);
+  gl.uniform1f(progRender.u.uBlend, blend);
+  gl.uniform1i(progRender.u.uIters, TIERS[tier].iters);
+  gl.activeTexture(gl.TEXTURE0); gl.bindTexture(gl.TEXTURE_2D, noiseTex);
+  gl.activeTexture(gl.TEXTURE1); gl.bindTexture(gl.TEXTURE_2D, dustTex);
+  gl.activeTexture(gl.TEXTURE2); gl.bindTexture(gl.TEXTURE_2D, prev.tex);
+  gl.uniform1i(progRender.u.uNoise, 0);
+  gl.uniform1i(progRender.u.uDust, 1);
+  gl.uniform1i(progRender.u.uPrev, 2);
+  gl.drawArrays(gl.TRIANGLES, 0, 3);
+
+  /* --- pass 2: bloom downsample chain --- */
+  gl.useProgram(progDown.p);
+  gl.uniform1i(progDown.u.uTex, 0);
+  gl.activeTexture(gl.TEXTURE0);
+  let src = curr.tex;
+  for (let i = 0; i < BLOOM_LEVELS; i++) {
+    const dst = state.bloomD[i];
+    gl.bindFramebuffer(gl.FRAMEBUFFER, dst.fbo);
+    gl.viewport(0, 0, dst.w, dst.h);
+    gl.uniform2f(progDown.u.uOutRes, dst.w, dst.h);
+    gl.bindTexture(gl.TEXTURE_2D, src);
+    gl.drawArrays(gl.TRIANGLES, 0, 3);
+    src = dst.tex;
+  }
+
+  /* --- pass 3: gaussian blur per level (H then V) --- */
+  gl.useProgram(progBlur.p);
+  gl.uniform1i(progBlur.u.uTex, 0);
+  for (let i = 0; i < BLOOM_LEVELS; i++) {
+    const D = state.bloomD[i], Tt = state.bloomT[i];
+    // horizontal: D -> T
+    gl.bindFramebuffer(gl.FRAMEBUFFER, Tt.fbo);
+    gl.viewport(0, 0, Tt.w, Tt.h);
+    gl.uniform2f(progBlur.u.uOutRes, Tt.w, Tt.h);
+    gl.uniform2f(progBlur.u.uDir, 1, 0);
+    gl.bindTexture(gl.TEXTURE_2D, D.tex);
+    gl.drawArrays(gl.TRIANGLES, 0, 3);
+    // vertical: T -> D
+    gl.bindFramebuffer(gl.FRAMEBUFFER, D.fbo);
+    gl.viewport(0, 0, D.w, D.h);
+    gl.uniform2f(progBlur.u.uOutRes, D.w, D.h);
+    gl.uniform2f(progBlur.u.uDir, 0, 1);
+    gl.bindTexture(gl.TEXTURE_2D, Tt.tex);
+    gl.drawArrays(gl.TRIANGLES, 0, 3);
+  }
+
+  /* --- pass 4: composite to screen --- */
+  gl.bindFramebuffer(gl.FRAMEBUFFER, null);
+  gl.viewport(0, 0, canvas.width, canvas.height);
+  gl.useProgram(progComposite.p);
+  gl.uniform2f(progComposite.u.uOutRes, canvas.width, canvas.height);
+  gl.activeTexture(gl.TEXTURE0); gl.bindTexture(gl.TEXTURE_2D, curr.tex);
+  gl.uniform1i(progComposite.u.uScene, 0);
+  for (let i = 0; i < BLOOM_LEVELS; i++) {
+    gl.activeTexture(gl.TEXTURE1 + i);
+    gl.bindTexture(gl.TEXTURE_2D, state.bloomD[i].tex);
+    gl.uniform1i(progComposite.u['uB' + i], 1 + i);
+  }
+  gl.drawArrays(gl.TRIANGLES, 0, 3);
+
+  // swap ping-pong
+  state.pong = prev; state.ping = curr;
+  state.frame++;
+
+  // freeze tier: stop once temporally converged
+  if (TIERS[tier].freeze && state.frame > 150) state.frozen = true;
+
+  if (DEBUG && (state.frame & 15) === 0) {
+    const dt = state.dts.length ? state.dts[state.dts.length - 1] : 0;
+    debugEl.textContent =
+      `tier   ${tier}${tierForced ? ' (forced)' : ''}\n` +
+      `iters  ${TIERS[tier].iters}\n` +
+      `render ${state.renderW}x${state.renderH}\n` +
+      `canvas ${canvas.width}x${canvas.height}\n` +
+      `dt     ${dt.toFixed(1)} ms\n` +
+      `frame  ${state.frame}${state.frozen ? ' (frozen)' : ''}`;
+  }
+}
+
+let running = false;
+function wake() {
+  state.frozen = false;
+  if (!running) {
+    running = true;
+    requestAnimationFrame(draw);
+  }
+}
+
+let resizeTimer = 0;
+window.addEventListener('resize', () => {
+  clearTimeout(resizeTimer);
+  resizeTimer = setTimeout(() => { rebuild(); wake(); }, 150);
+});
+
+canvas.addEventListener('webglcontextlost', (e) => {
+  e.preventDefault();
+  fail();
+});
+
+rebuild();
+running = true;
+requestAnimationFrame(draw);
+</script>
+</body>
+</html>
