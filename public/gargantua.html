@@ -7,14 +7,53 @@
 <style>
   html, body { margin:0; padding:0; height:100%; background:#000; overflow:hidden; }
   canvas { display:block; width:100vw; height:100vh; touch-action:none; }
-  #hint {
-    position:fixed; left:50%; bottom:max(20px, env(safe-area-inset-bottom));
-    transform:translateX(-50%);
-    color:rgba(255,255,255,0.35); font:12px/1 system-ui, sans-serif;
-    letter-spacing:0.18em; text-transform:uppercase;
-    pointer-events:none; opacity:0; transition:opacity 1.2s ease;
+  #threshold-overlay {
+    position:fixed; inset:0; background:#000; opacity:1;
+    pointer-events:none; transition:opacity 1.3s ease-in;
   }
-  #hint.show { opacity:1; }
+  #snapshot {
+    position:fixed; inset:0; width:100%; height:100%; display:none;
+    transform-origin:50% 50%;
+  }
+  @keyframes hyperPulse {
+    0%   { transform:scale(1);    filter:brightness(1); }
+    40%  { transform:scale(1.1);  filter:brightness(1.25); }
+    100% { transform:scale(9);    filter:brightness(3.2) blur(3px); }
+  }
+  #snapshot.entering {
+    display:block;
+    animation:hyperPulse 2.2s cubic-bezier(0.7, 0, 0.9, 1) forwards;
+  }
+  #site-nav {
+    position:fixed; top:max(24px, env(safe-area-inset-top)); left:0; right:0;
+    display:flex; justify-content:center; gap:clamp(40px, 8vw, 140px);
+    font:12px/1 'Courier New', ui-monospace, monospace;
+    letter-spacing:0.12em; text-transform:uppercase;
+    transition:opacity 0.4s ease;
+  }
+  #site-nav a { color:rgba(255,255,255,0.55); text-decoration:none; transition:color 0.2s ease; }
+  #site-nav a:hover { color:#fff; }
+  #threshold-backdrop {
+    position:fixed; left:0; right:0; top:50%; transform:translateY(-50%);
+    height:200px; background:rgba(0,0,0,0.45);
+    pointer-events:none; transition:opacity 0.4s ease;
+  }
+  #threshold-box {
+    position:fixed; left:50%; top:50%; transform:translate(-50%, -50%);
+    max-width:440px; padding:32px; text-align:center; cursor:pointer;
+    transition:opacity 0.4s ease;
+  }
+  #threshold-box h1 {
+    margin:0 0 12px; color:rgba(255,255,255,0.92);
+    font:32px/1.2 'Courier New', ui-monospace, monospace; font-weight:500;
+    text-shadow:0 0 24px rgba(0,0,0,0.8);
+  }
+  #threshold-box p {
+    margin:0; color:rgba(255,255,255,0.55);
+    font:13px/1.5 'Courier New', ui-monospace, monospace; letter-spacing:0.05em;
+    text-transform:uppercase; text-shadow:0 0 20px rgba(0,0,0,0.8);
+  }
+  .fading-out { opacity:0 !important; pointer-events:none; }
   #debug {
     position:fixed; top:8px; left:8px; color:#7f7; background:rgba(0,0,0,0.5);
     font:11px/1.5 monospace; padding:6px 8px; white-space:pre; display:none;
@@ -29,7 +68,18 @@
 </head>
 <body>
 <canvas id="c"></canvas>
-<div id="hint">drag to orbit</div>
+<canvas id="snapshot"></canvas>
+<nav id="site-nav">
+  <a href="#">Home</a>
+  <a href="#">Explore</a>
+  <a href="#">Credits</a>
+</nav>
+<div id="threshold-backdrop"></div>
+<div id="threshold-box">
+  <h1>Whisper into the Universe</h1>
+  <p>Click to continue</p>
+</div>
+<div id="threshold-overlay"></div>
 <div id="debug"></div>
 <div id="fail">This visual needs WebGL2 with floating-point render targets,<br>which this browser or device doesn't support.</div>
 
@@ -444,7 +494,11 @@ void main()
 /* ---------- boilerplate ---------- */
 const canvas = document.getElementById('c');
 const debugEl = document.getElementById('debug');
-const hintEl = document.getElementById('hint');
+const overlayEl = document.getElementById('threshold-overlay');
+const navEl = document.getElementById('site-nav');
+const boxEl = document.getElementById('threshold-box');
+const backdropEl = document.getElementById('threshold-backdrop');
+const snapshotEl = document.getElementById('snapshot');
 const failEl = document.getElementById('fail');
 
 const params = new URLSearchParams(location.search);
@@ -453,7 +507,11 @@ if (DEBUG) debugEl.style.display = 'block';
 
 const gl = canvas.getContext('webgl2', {
   antialias: false, alpha: false, depth: false, stencil: false,
-  powerPreference: 'high-performance', preserveDrawingBuffer: false,
+  powerPreference: 'high-performance',
+  // true so the drawing buffer survives after the render loop freezes —
+  // the Begin Journey snapshot (drawImage(canvas, ...) in enterVoid) reads
+  // it asynchronously, well after the last frame was drawn.
+  preserveDrawingBuffer: true,
 });
 
 function fail() { failEl.style.display = 'flex'; canvas.style.display = 'none'; }
@@ -623,31 +681,42 @@ function rebuild() {
   state.frame = 0;
 }
 
-/* ---------- input ---------- */
-if (!coarse) hintEl.classList.add('show');
-setTimeout(() => hintEl.classList.remove('show'), 5000);
+/* ---------- threshold: Begin Journey triggers a pulsing hyper-zoom, a second press skips it ----------
+   Drag-to-orbit was removed: it kept invalidating the TAA accumulation on
+   every move, forcing continuous full-cost re-rendering. The camera now
+   just sits at its resting angle, converges once, and freezes.
+   The live path tracer is expensive per frame, so instead of animating it
+   live we snapshot the current frame as a plain bitmap, stop the renderer
+   completely, and run the zoom as a cheap CSS animation on that still image. */
+let entering = false;
+const ZOOM_MS = 2200;
 
-function setMouseFromEvent(e) {
-  const r = canvas.getBoundingClientRect();
-  const x = (e.clientX - r.left) / r.width;
-  const y = 1.0 - (e.clientY - r.top) / r.height;
-  state.mouse = [Math.min(1, Math.max(0.001, x)), Math.min(1, Math.max(0, y))];
+function enterVoid() {
+  if (entering) {
+    location.href = '/void';
+    return;
+  }
+  entering = true;
+
+  snapshotEl.width = canvas.width;
+  snapshotEl.height = canvas.height;
+  snapshotEl.getContext('2d').drawImage(canvas, 0, 0);
+  state.frozen = true;
+  canvas.style.display = 'none';
+
+  navEl.classList.add('fading-out');
+  boxEl.classList.add('fading-out');
+  backdropEl.classList.add('fading-out');
+  overlayEl.style.transitionDuration = (ZOOM_MS + 300) + 'ms';
+  overlayEl.style.opacity = '1';
+  snapshotEl.classList.add('entering');
+
+  setTimeout(() => { location.href = '/void'; }, ZOOM_MS + 200);
 }
-if (!coarse && !reducedMotion) {
-  canvas.addEventListener('pointerdown', (e) => {
-    state.dragging = true;
-    canvas.setPointerCapture(e.pointerId);
-    setMouseFromEvent(e);
-    hintEl.classList.remove('show');
-    wake();
-  });
-  canvas.addEventListener('pointermove', (e) => {
-    if (state.dragging) setMouseFromEvent(e);
-  });
-  const up = () => { state.dragging = false; };
-  canvas.addEventListener('pointerup', up);
-  canvas.addEventListener('pointercancel', up);
-}
+// No more "Begin Journey" button — press the black hole itself (the canvas,
+// or the title text sitting centered over it) to cross the threshold.
+canvas.addEventListener('click', enterVoid);
+boxEl.addEventListener('click', enterVoid);
 
 /* ---------- frame ---------- */
 function draw(now) {
@@ -771,8 +840,10 @@ function draw(now) {
   state.pong = prev; state.ping = curr;
   state.frame++;
 
-  // freeze tier: stop once temporally converged
-  if (TIERS[tier].freeze && state.frame > 150) state.frozen = true;
+  // stop once temporally converged and not being actively orbited —
+  // the auto-tier-down cap tops out at tier 2, so TIERS[tier].freeze was
+  // previously unreachable and this render loop never stopped on its own.
+  if (!state.dragging && state.frame > 150) state.frozen = true;
 
   if (DEBUG && (state.frame & 15) === 0) {
     const dt = state.dts.length ? state.dts[state.dts.length - 1] : 0;
@@ -809,6 +880,10 @@ canvas.addEventListener('webglcontextlost', (e) => {
 rebuild();
 running = true;
 requestAnimationFrame(draw);
+
+// Mirrors the void's fade-to-black on exit: the threshold starts covered in
+// black and fades in, rather than snapping straight to full brightness.
+requestAnimationFrame(() => { overlayEl.style.opacity = '0'; });
 </script>
 </body>
 </html>

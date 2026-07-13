@@ -1,0 +1,1035 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>The Void</title>
+<style>
+  html, body { margin:0; padding:0; height:100%; background:#000; overflow:hidden; }
+  canvas { display:block; width:100vw; height:100vh; }
+
+  #panel {
+    position:fixed; left:50%; bottom:12%; transform:translateX(-50%) translateY(10px);
+    width:min(720px, 90vw);
+    padding:0 8px;
+    font:14px/1.5 'Courier New', ui-monospace, monospace;
+    color:rgba(255,255,255,0.85);
+    opacity:0; transition:opacity 0.9s ease, transform 0.9s ease;
+  }
+  #panel.show { opacity:1; transform:translateX(-50%) translateY(0); }
+  #panel.pulsing #question { text-shadow:0 0 22px rgba(210,225,255,0.75); }
+
+  #panel.greeting-mode #dots,
+  #panel.greeting-mode #answer,
+  #panel.greeting-mode #controls,
+  #panel.quote-mode #dots,
+  #panel.quote-mode #answer,
+  #panel.quote-mode #controls { display:none; }
+
+  #dots { display:flex; gap:8px; margin-bottom:18px; }
+  .dot {
+    width:7px; height:7px; border-radius:50%;
+    background:rgba(255,255,255,0.2);
+    transition:background 0.4s ease;
+  }
+  .dot.done { background:rgba(255,255,255,0.5); }
+  .dot.current { background:#fff; }
+
+  #question {
+    margin:0 0 14px; font-size:17px; color:rgba(255,255,255,0.92);
+    min-height:1.5em; text-shadow:0 0 0 rgba(210,225,255,0);
+    transition:text-shadow 2.4s ease;
+  }
+  #cursor {
+    display:inline-block; margin-left:2px; color:rgba(255,255,255,0.65);
+    animation:blink 1s steps(1) infinite;
+  }
+  @keyframes blink { 0%, 49% { opacity:1; } 50%, 100% { opacity:0; } }
+
+  #quote-author {
+    display:none; margin:-8px 0 14px; font-size:12px; font-style:italic;
+    color:rgba(255,255,255,0.4);
+  }
+  #quote-author.show { display:block; }
+
+  #answer {
+    display:block; width:100%; box-sizing:border-box; resize:vertical;
+    min-height:64px; padding:10px 2px; margin-bottom:18px;
+    background:transparent; border:none; border-bottom:1px solid rgba(255,255,255,0.18);
+    border-radius:0; color:#fff; font:13px/1.6 'Courier New', ui-monospace, monospace;
+    transition:border-color 0.3s ease, box-shadow 0.4s ease;
+    box-shadow:0 0 0 rgba(200,220,255,0);
+  }
+  #answer::placeholder { color:rgba(255,255,255,0.3); }
+  #answer:focus { outline:none; border-bottom-color:rgba(255,255,255,0.55); }
+  #answer.nudge { border-bottom-color:rgba(220,230,255,0.8); box-shadow:0 12px 24px -8px rgba(200,220,255,0.5); }
+
+  #controls { display:flex; justify-content:flex-end; gap:12px; }
+  button {
+    font:13px/1 'Courier New', ui-monospace, monospace; letter-spacing:0.04em;
+    border:none; border-radius:6px; padding:12px 18px; cursor:pointer;
+    transition:transform 0.15s ease, background 0.2s ease, color 0.2s ease;
+  }
+  button:active { transform:scale(0.96); }
+  #continue-btn { background:#e6e6e6; color:#111; }
+  #continue-btn:hover { background:#fff; }
+
+  #leave-void-btn {
+    position:fixed; right:32px; bottom:32px; z-index:4;
+    background:#e6e6e6; color:#111;
+    opacity:0; pointer-events:none; transform:translateY(8px);
+    transition:opacity 0.6s ease, transform 0.6s ease, background 0.2s ease;
+  }
+  #leave-void-btn.show { opacity:1; pointer-events:auto; transform:translateY(0); }
+  #leave-void-btn:hover { background:#fff; }
+
+  #spirit-caption {
+    position:fixed; left:50%; top:calc(50% + 72px); transform:translateX(-50%);
+    font:13px 'Courier New', ui-monospace, monospace; color:rgba(255,255,255,0.75);
+    text-shadow:0 0 12px rgba(200,220,255,0.6);
+    opacity:0; pointer-events:none; text-align:center; transition:opacity 0.6s ease;
+  }
+  #spirit-caption.show { opacity:1; }
+
+  #confirm {
+    position:fixed; inset:0; display:none; align-items:center; justify-content:center;
+    background:rgba(0,0,0,0.5);
+  }
+  #confirm.show { display:flex; }
+  #confirm-box {
+    width:min(440px, 86vw); padding:28px 32px;
+    background:rgba(10,12,20,0.85); border:none;
+    border-radius:16px; backdrop-filter:blur(10px);
+    box-shadow:0 0 1px rgba(255,255,255,0.12), 0 0 70px rgba(190,210,255,0.10);
+    font:14px/1.6 'Courier New', ui-monospace, monospace; color:rgba(255,255,255,0.85);
+  }
+  #confirm-box h2 { margin:0 0 10px; font-size:16px; color:#fff; }
+  #confirm-box p { margin:0 0 20px; color:rgba(255,255,255,0.6); }
+  #confirm-controls { display:flex; justify-content:flex-end; gap:12px; }
+  #confirm-back { background:transparent; color:rgba(255,255,255,0.5); }
+  #confirm-back:hover { color:rgba(255,255,255,0.8); }
+  #confirm-yes { background:#e6e6e6; color:#111; }
+  #confirm-yes:hover { background:#fff; }
+
+  #side-arrow {
+    position:fixed; left:0; top:50%; transform:translateY(-50%);
+    width:34px; height:70px; display:flex; align-items:center; justify-content:center;
+    cursor:pointer; z-index:5;
+  }
+  #arrow-icon {
+    color:rgba(255,255,255,0.14); font-size:22px; line-height:1;
+    transition:color 0.3s ease, transform 0.3s ease;
+  }
+  #side-arrow:hover #arrow-icon { color:rgba(255,255,255,0.6); transform:translateX(3px); }
+
+  #side-bubble {
+    position:absolute; left:34px; top:50%; transform:translateY(-50%) translateX(-8px);
+    display:flex; flex-direction:column; gap:4px;
+    padding:12px 12px 12px 18px; min-width:150px;
+    background:rgba(8,10,18,0.55); border-radius:14px; backdrop-filter:blur(10px);
+    box-shadow:0 0 1px rgba(255,255,255,0.12), 0 0 50px rgba(190,210,255,0.08);
+    opacity:0; pointer-events:none;
+    transition:opacity 0.25s ease, transform 0.25s ease;
+  }
+  #side-arrow:hover #side-bubble,
+  #side-bubble:hover {
+    opacity:1; pointer-events:auto; transform:translateY(-50%) translateX(0);
+  }
+  #side-bubble button {
+    font:13px/1 'Courier New', ui-monospace, monospace; letter-spacing:0.03em;
+    background:transparent; border:none; color:rgba(255,255,255,0.65);
+    text-align:left; padding:9px 10px; border-radius:8px; cursor:pointer;
+    transition:background 0.2s ease, color 0.2s ease;
+  }
+  #side-bubble button:hover { background:rgba(255,255,255,0.08); color:#fff; }
+
+  #stories-overlay {
+    position:fixed; inset:0; display:none; align-items:center; justify-content:center;
+    background:rgba(0,0,0,0.5); z-index:10;
+  }
+  #stories-overlay.show { display:flex; }
+  #stories-box {
+    width:min(440px, 86vw); padding:28px 32px;
+    background:rgba(10,12,20,0.85); border:none;
+    border-radius:16px; backdrop-filter:blur(10px);
+    box-shadow:0 0 1px rgba(255,255,255,0.12), 0 0 70px rgba(190,210,255,0.10);
+    font:14px/1.6 'Courier New', ui-monospace, monospace; color:rgba(255,255,255,0.85);
+  }
+  #stories-box h2 { margin:0 0 14px; font-size:16px; color:#fff; }
+  #stories-list { max-height:50vh; overflow-y:auto; margin-bottom:20px; }
+  #stories-list p.empty { margin:0; color:rgba(255,255,255,0.5); }
+  .story-session { margin-bottom:18px; padding-bottom:14px; border-bottom:1px solid rgba(255,255,255,0.1); }
+  .story-session:last-child { border-bottom:none; margin-bottom:0; padding-bottom:0; }
+  .story-date { margin:0 0 8px; font-size:12px; color:rgba(255,255,255,0.4); }
+  .story-entry { margin:0 0 8px; }
+  #stories-close { background:#e6e6e6; color:#111; }
+  #stories-close:hover { background:#fff; }
+
+  /* View Stories: one table per session — a "story record" grouped under its date */
+  .story-table { width:100%; border-collapse:collapse; margin-bottom:20px; }
+  .story-table:last-child { margin-bottom:0; }
+  .story-table caption {
+    caption-side:top; text-align:left; margin:0 0 8px;
+    font-size:12px; color:rgba(255,255,255,0.4);
+  }
+  .story-table th, .story-table td {
+    text-align:left; vertical-align:top; padding:7px 10px 7px 0;
+    border-bottom:1px solid rgba(255,255,255,0.08); font-weight:normal;
+  }
+  .story-table th { width:36%; color:rgba(255,255,255,0.5); }
+  .story-table td { color:rgba(255,255,255,0.9); }
+  .story-table tr:last-child th, .story-table tr:last-child td { border-bottom:none; }
+
+  .story-entry-edit { margin-bottom:10px; }
+  .story-entry-edit .story-prompt { display:block; margin-bottom:4px; color:rgba(255,255,255,0.5); font-size:13px; }
+  .story-edit-textarea {
+    display:block; width:100%; box-sizing:border-box; resize:vertical;
+    min-height:44px; padding:6px 2px; margin-bottom:6px;
+    background:transparent; border:none; border-bottom:1px solid rgba(255,255,255,0.18);
+    color:#fff; font:13px/1.5 'Courier New', ui-monospace, monospace;
+  }
+  .story-edit-textarea:focus { outline:none; border-bottom-color:rgba(255,255,255,0.55); }
+  .story-edit-controls { display:flex; justify-content:flex-end; gap:8px; margin-bottom:4px; }
+  .story-edit-controls button {
+    font-size:12px; padding:7px 12px;
+    background:rgba(255,255,255,0.1); color:rgba(255,255,255,0.75);
+  }
+  .story-edit-controls button:hover { background:rgba(255,255,255,0.18); color:#fff; }
+  .story-delete-session {
+    font-size:12px; padding:7px 12px; margin-top:4px;
+    background:transparent; color:rgba(255,120,120,0.7);
+  }
+  .story-delete-session:hover { color:rgba(255,140,140,0.95); }
+
+  #void-overlay {
+    position:fixed; inset:0; background:#000; opacity:0;
+    pointer-events:none; transition:opacity 2.2s ease-in; z-index:20;
+  }
+
+  /* Drops in once the first prompt appears — not present during the greeting */
+  #void-nav {
+    position:fixed; top:max(24px, env(safe-area-inset-top)); left:0; right:0;
+    display:flex; justify-content:center; align-items:center; gap:clamp(32px, 6vw, 100px);
+    font:12px/1 'Courier New', ui-monospace, monospace;
+    letter-spacing:0.12em; text-transform:uppercase;
+    transform:translateY(-140%); opacity:0; pointer-events:none;
+    transition:transform 0.8s cubic-bezier(0.2, 0.8, 0.2, 1), opacity 0.6s ease;
+    z-index:3;
+  }
+  #void-nav.show { transform:translateY(0); opacity:1; pointer-events:auto; }
+  #void-nav a { color:rgba(255,255,255,0.55); text-decoration:none; transition:color 0.2s ease; }
+  #void-nav a:hover { color:#fff; }
+  #void-nav button {
+    background:none; border:none; padding:0; border-radius:0; cursor:pointer;
+    font:12px/1 'Courier New', ui-monospace, monospace; letter-spacing:0.12em; text-transform:uppercase;
+    color:rgba(255,255,255,0.55); transition:color 0.2s ease;
+  }
+  #void-nav button:hover { color:#fff; }
+</style>
+</head>
+<body>
+<canvas id="c"></canvas>
+<div id="void-overlay"></div>
+<nav id="void-nav">
+  <a href="/">Home</a>
+  <a href="#">Explore</a>
+  <a href="#">Credits</a>
+  <button id="void-view-stories-btn">View Stories</button>
+  <button id="void-logout-btn">Logout</button>
+</nav>
+
+<div id="panel">
+  <div id="dots"></div>
+  <p id="question"></p>
+  <p id="quote-author"></p>
+  <textarea id="answer" placeholder="(optional — leave blank to move on. **bold**, *italic*, - lists)"></textarea>
+  <div id="controls">
+    <button id="continue-btn">Continue</button>
+  </div>
+</div>
+
+<button id="leave-void-btn">Leave the void</button>
+<div id="spirit-caption"></div>
+
+<div id="confirm">
+  <div id="confirm-box">
+    <h2>Are you sure this is all for today?</h2>
+    <p id="confirm-list"></p>
+    <div id="confirm-controls">
+      <button id="confirm-back">Go back</button>
+      <button id="confirm-yes">Yes, that's all</button>
+    </div>
+  </div>
+</div>
+
+<div id="side-arrow">
+  <span id="arrow-icon">&#8249;</span>
+  <div id="side-bubble">
+    <button id="view-stories-btn">View Stories</button>
+    <button id="edit-stories-btn">Edit Stories</button>
+    <button id="exit-btn">Exit</button>
+  </div>
+</div>
+
+<div id="stories-overlay">
+  <div id="stories-box">
+    <h2>Past Sessions</h2>
+    <div id="stories-list"></div>
+    <button id="stories-close">Close</button>
+  </div>
+</div>
+
+<script>
+'use strict';
+/* ============================================================
+   The void + the spirit — Canvas2D, no dependencies.
+   Fixed shape and size; its only reactive behavior is a brief
+   pulse on submit. The four prompts are presented one at a
+   time, in fixed order, each skippable.
+   ============================================================ */
+
+const canvas = document.getElementById('c');
+const ctx = canvas.getContext('2d');
+const reducedMotion = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+
+let dpr = Math.min(window.devicePixelRatio || 1, 2);
+let w = 0, h = 0;
+
+function resize() {
+  w = canvas.clientWidth;
+  h = canvas.clientHeight;
+  canvas.width = Math.round(w * dpr);
+  canvas.height = Math.round(h * dpr);
+  ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+}
+window.addEventListener('resize', resize);
+resize();
+
+const BASE_RADIUS = 46;
+const BREATH_PERIOD_MS = 5200;   // one full inhale-exhale cycle
+const BREATH_AMOUNT = 0.12;      // fraction of radius the breath swells by
+const FADE_IN_MS = 3600;         // a slow manifestation, not a snap-in
+
+// Stays null (fully dark) until showGreeting() starts it, a beat after the
+// greeting text begins typing — the words arrive first, then the spirit
+// manifests, rather than both appearing at once.
+let spiritManifestAt = null;
+let pulseStart = 0, pulseDuration = 0, pulseStrength = 0;
+
+function drawSpirit(t) {
+  ctx.clearRect(0, 0, w, h);
+
+  const fadeRaw = spiritManifestAt === null ? 0
+    : Math.max(0, Math.min(1, (t - spiritManifestAt) / FADE_IN_MS));
+  // eased (not linear) — a linear ramp looks like a bright pop against pure
+  // black before it visibly starts climbing, since a radial gradient reads
+  // as "on" well before alpha=1. Squaring holds it near-invisible longer.
+  const fadeIn = reducedMotion ? 1 : fadeRaw * fadeRaw;
+  ctx.save();
+  ctx.globalAlpha = fadeIn;
+
+  const breath = reducedMotion ? 0 : Math.sin((t / BREATH_PERIOD_MS) * Math.PI * 2);
+  let boost = 0;
+  if (t < pulseStart + pulseDuration) {
+    const p = (t - pulseStart) / pulseDuration; // 0..1
+    boost = Math.sin(p * Math.PI) * pulseStrength; // rises then falls back to 0
+  }
+  const radius = BASE_RADIUS * (1 + breath * BREATH_AMOUNT + boost * 0.4);
+  const cx = w / 2, cy = h / 2;
+
+  const glow = ctx.createRadialGradient(cx, cy, 0, cx, cy, radius * (4 + boost * 2));
+  glow.addColorStop(0, `rgba(255,255,255,${0.95})`);
+  glow.addColorStop(0.15, 'rgba(235,240,255,0.55)');
+  glow.addColorStop(0.4, 'rgba(200,215,255,0.12)');
+  glow.addColorStop(1, 'rgba(200,215,255,0)');
+  ctx.fillStyle = glow;
+  ctx.fillRect(0, 0, w, h);
+
+  const core = ctx.createRadialGradient(cx, cy, 0, cx, cy, radius);
+  core.addColorStop(0, '#ffffff');
+  core.addColorStop(1, 'rgba(255,255,255,0.85)');
+  ctx.fillStyle = core;
+  ctx.beginPath();
+  ctx.arc(cx, cy, radius, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.restore();
+}
+
+/* ---------- particles: submitted text dissolves into the spirit ---------- */
+const particles = [];
+function spawnParticlesFromRect(rect, count) {
+  const now = performance.now();
+  for (let i = 0; i < count; i++) {
+    particles.push({
+      x0: rect.left + Math.random() * rect.width,
+      y0: rect.top + Math.random() * rect.height,
+      delay: Math.random() * 300,
+      dur: 700 + Math.random() * 400,
+      size: 1 + Math.random() * 2.2,
+      t0: now,
+    });
+  }
+}
+
+function drawParticles(now) {
+  const cx = w / 2, cy = h / 2;
+  for (let i = particles.length - 1; i >= 0; i--) {
+    const pt = particles[i];
+    const elapsed = now - pt.t0 - pt.delay;
+    if (elapsed < 0) continue;
+    const p = Math.min(1, elapsed / pt.dur);
+    const eased = p * p; // accelerates inward, like being drawn in
+    const x = pt.x0 + (cx - pt.x0) * eased;
+    const y = pt.y0 + (cy - pt.y0) * eased;
+    const alpha = p < 0.85 ? 0.85 : 0.85 * (1 - (p - 0.85) / 0.15);
+    ctx.beginPath();
+    ctx.fillStyle = `rgba(255,255,255,${Math.max(0, alpha)})`;
+    ctx.arc(x, y, pt.size * (1 - eased * 0.4), 0, Math.PI * 2);
+    ctx.fill();
+    if (p >= 1) particles.splice(i, 1);
+  }
+}
+
+/* ---------- float particles: a few motes drift up from the textbox on Continue ---------- */
+const floatParticles = [];
+function spawnFloatParticlesFromRect(rect, count) {
+  const now = performance.now();
+  for (let i = 0; i < count; i++) {
+    floatParticles.push({
+      x: rect.left + Math.random() * rect.width,
+      y: rect.top + rect.height * (0.3 + Math.random() * 0.6),
+      vy: -(18 + Math.random() * 24),        // px/sec, drifting upward
+      vx: (Math.random() - 0.5) * 8,          // px/sec, gentle sideways drift
+      size: 1 + Math.random() * 1.6,
+      t0: now,
+      dur: 900 + Math.random() * 500,
+    });
+  }
+}
+
+function spawnFloatParticlesFromPoint(x, y, count) {
+  const now = performance.now();
+  for (let i = 0; i < count; i++) {
+    floatParticles.push({
+      x: x + (Math.random() - 0.5) * 10,
+      y: y + (Math.random() - 0.5) * 6,
+      vy: -(18 + Math.random() * 24),
+      vx: (Math.random() - 0.5) * 8,
+      size: 1 + Math.random() * 1.6,
+      t0: now,
+      dur: 900 + Math.random() * 500,
+    });
+  }
+}
+
+function drawFloatParticles(now) {
+  for (let i = floatParticles.length - 1; i >= 0; i--) {
+    const pt = floatParticles[i];
+    const elapsed = now - pt.t0;
+    const p = Math.min(1, elapsed / pt.dur);
+    const x = pt.x + pt.vx * (elapsed / 1000);
+    const y = pt.y + pt.vy * (elapsed / 1000);
+    const alpha = 0.65 * (1 - p);
+    ctx.beginPath();
+    ctx.fillStyle = `rgba(220,230,255,${Math.max(0, alpha)})`;
+    ctx.arc(x, y, pt.size, 0, Math.PI * 2);
+    ctx.fill();
+    if (p >= 1) floatParticles.splice(i, 1);
+  }
+}
+
+/* ---------- ripple particles: a burst outward when the spirit is clicked ---------- */
+const rippleParticles = [];
+function spawnRippleParticles(x, y, count) {
+  const now = performance.now();
+  for (let i = 0; i < count; i++) {
+    const angle = Math.random() * Math.PI * 2;
+    const speed = 40 + Math.random() * 70;
+    rippleParticles.push({
+      x, y,
+      vx: Math.cos(angle) * speed,
+      vy: Math.sin(angle) * speed,
+      size: 1 + Math.random() * 2,
+      t0: now,
+      dur: 700 + Math.random() * 400,
+    });
+  }
+}
+
+function drawRippleParticles(now) {
+  for (let i = rippleParticles.length - 1; i >= 0; i--) {
+    const pt = rippleParticles[i];
+    const elapsed = now - pt.t0;
+    const p = Math.min(1, elapsed / pt.dur);
+    const x = pt.x + pt.vx * (elapsed / 1000);
+    const y = pt.y + pt.vy * (elapsed / 1000);
+    const alpha = 0.8 * (1 - p);
+    ctx.beginPath();
+    ctx.fillStyle = `rgba(255,255,255,${Math.max(0, alpha)})`;
+    ctx.arc(x, y, pt.size, 0, Math.PI * 2);
+    ctx.fill();
+    if (p >= 1) rippleParticles.splice(i, 1);
+  }
+}
+
+function frame(now) {
+  drawSpirit(now);
+  drawParticles(now);
+  drawFloatParticles(now);
+  drawRippleParticles(now);
+  requestAnimationFrame(frame);
+}
+requestAnimationFrame(frame);
+
+const PULSE_MS = 2600;      // the big pulse: submitting a full session
+const NUDGE_MS = 600;       // how long the textbox glow lingers on Continue
+
+function pulseSpirit(strength = 0.9, duration = PULSE_MS) {
+  pulseStart = performance.now();
+  pulseDuration = duration;
+  pulseStrength = strength;
+}
+
+/* ---------- clicking the spirit: it talks, and motes ripple outward ---------- */
+const SPIRIT_TALK_LINES = [
+  "I'm listening.",
+  'The dark keeps no secrets from me.',
+  'Take your time.',
+  "There's no rush here.",
+  'Every story matters, even the small ones.',
+  'You are heard, you don\'t need to change anything.',
+];
+const spiritCaptionEl = document.getElementById('spirit-caption');
+let spiritCaptionTimer = null;
+function showSpiritCaption(text) {
+  clearTimeout(spiritCaptionTimer);
+  spiritCaptionEl.textContent = text;
+  spiritCaptionEl.classList.add('show');
+  spiritCaptionTimer = setTimeout(() => spiritCaptionEl.classList.remove('show'), 2200);
+}
+
+canvas.addEventListener('click', (e) => {
+  if (spiritManifestAt === null) return; // nothing to click yet
+  const cx = w / 2, cy = h / 2;
+  const dx = e.clientX - cx, dy = e.clientY - cy;
+  if (Math.sqrt(dx * dx + dy * dy) > BASE_RADIUS * 3) return; // must click near the spirit
+  pulseSpirit(0.5, 900);
+  if (!reducedMotion) spawnRippleParticles(cx, cy, 26);
+  const line = SPIRIT_TALK_LINES[Math.floor(Math.random() * SPIRIT_TALK_LINES.length)];
+  showSpiritCaption(line);
+});
+
+/* ---------- the four prompts, always in this order ---------- */
+const PROMPTS = [
+  { key: 'failed', question: 'What failed?' },
+  { key: 'worked', question: 'What worked?' },
+  { key: 'missed', question: 'What did you miss?' },
+  { key: 'next',   question: 'What will you do next?' },
+];
+
+const voidNavEl = document.getElementById('void-nav');
+const voidViewStoriesBtn = document.getElementById('void-view-stories-btn');
+voidViewStoriesBtn.addEventListener('click', () => {
+  storiesOverlay.classList.remove('editable');
+  storiesOverlay.classList.add('show');
+  loadStories(false);
+});
+
+document.getElementById('void-logout-btn').addEventListener('click', () => {
+  fetch('/api/logout', { method: 'POST' }).finally(() => { location.href = '/login'; });
+});
+
+const panelEl = document.getElementById('panel');
+const dotsEl = document.getElementById('dots');
+const questionEl = document.getElementById('question');
+const answerEl = document.getElementById('answer');
+const continueBtn = document.getElementById('continue-btn');
+
+const confirmEl = document.getElementById('confirm');
+const confirmListEl = document.getElementById('confirm-list');
+const confirmBackBtn = document.getElementById('confirm-back');
+const confirmYesBtn = document.getElementById('confirm-yes');
+
+const answers = { failed: '', worked: '', missed: '', next: '' };
+let step = 0;
+
+PROMPTS.forEach(() => {
+  const dot = document.createElement('div');
+  dot.className = 'dot';
+  dotsEl.appendChild(dot);
+});
+
+let typeTimer = null;
+function ensureCursor() {
+  let cursor = document.getElementById('cursor');
+  if (!cursor) {
+    cursor = document.createElement('span');
+    cursor.id = 'cursor';
+    cursor.textContent = '█';
+    questionEl.appendChild(cursor);
+  }
+  return cursor;
+}
+
+// Types `text` after whatever is already in questionEl (does not clear it) —
+// used both by typeQuestion (which clears first) and typeSequence (which
+// clears once, then types several beats in a row).
+function appendTyped(text, speedMs, onDone) {
+  if (typeTimer) clearInterval(typeTimer);
+  const cursor = ensureCursor();
+
+  if (reducedMotion) {
+    cursor.insertAdjacentText('beforebegin', text);
+    if (onDone) onDone();
+    return;
+  }
+  let i = 0;
+  typeTimer = setInterval(() => {
+    if (i >= text.length) {
+      clearInterval(typeTimer);
+      typeTimer = null;
+      if (onDone) onDone();
+      return;
+    }
+    cursor.insertAdjacentText('beforebegin', text[i]);
+    i++;
+  }, speedMs);
+}
+
+function typeQuestion(text, onDone, speedMs = 28) {
+  questionEl.textContent = '';
+  appendTyped(text, speedMs, onDone);
+}
+
+// Types several beats in the same line, each after a pause — "Oh..." <gap>
+// "Hello again." — instead of one continuous string.
+function typeSequence(parts, gapMs, speedMs, onAllDone) {
+  questionEl.textContent = '';
+  ensureCursor();
+  let idx = 0;
+  function next() {
+    const text = (idx === 0 ? '' : ' ') + parts[idx];
+    idx++;
+    appendTyped(text, speedMs, () => {
+      if (idx < parts.length) {
+        setTimeout(next, gapMs);
+      } else if (onAllDone) {
+        onAllDone();
+      }
+    });
+  }
+  next();
+}
+
+/* ---------- greeting: a warm, curious hello before the four prompts ----------
+   Picked at random each visit, not based on any remembered history — the
+   spirit still doesn't track whether you've been here before (see
+   domain-model.md invariant 6); this is just personality, not memory.
+   Typed slower, in two beats with a pause between them, before the spirit
+   itself appears — closer to a conversation than a label popping in. */
+const GREETINGS = [
+  ['Oh...', 'hello again.', 'so tell me...'],
+  ['Greetings,', 'stranger.', 'so tell me...'],
+  ["You're here.", "I'm glad.", 'so tell me...'],
+  ['Ah,', 'a traveller.', 'so tell me...'],
+  ['Hello.', "I've been waiting in the dark for a voice.", 'so tell me...'],
+];
+const GREETING_TYPE_MS = 55;              // slower, more deliberate
+const GREETING_GAP_MS = 850;              // the pause between the two beats
+const WITNESS_MANIFEST_DELAY_MS = 2000;   // silence after the greeting, before the spirit appears
+
+function showGreeting() {
+  panelEl.classList.add('greeting-mode');
+  const parts = GREETINGS[Math.floor(Math.random() * GREETINGS.length)];
+  typeSequence(parts, GREETING_GAP_MS, GREETING_TYPE_MS, () => {
+    setTimeout(() => {
+      spiritManifestAt = performance.now();
+      setTimeout(() => {
+        panelEl.classList.remove('greeting-mode');
+        renderStep();
+        voidNavEl.classList.add('show');
+      }, 1200);
+    }, WITNESS_MANIFEST_DELAY_MS);
+  });
+}
+
+function renderStep() {
+  const p = PROMPTS[step];
+  typeQuestion(p.question);
+  answerEl.value = answers[p.key];
+  continueBtn.textContent = step === PROMPTS.length - 1 ? 'Submit' : 'Continue';
+  [...dotsEl.children].forEach((dot, i) => {
+    dot.classList.toggle('done', i < step);
+    dot.classList.toggle('current', i === step);
+  });
+}
+
+function nudgeAnswerBox() {
+  if (reducedMotion) return;
+  answerEl.classList.add('nudge');
+  setTimeout(() => answerEl.classList.remove('nudge'), NUDGE_MS);
+  spawnFloatParticlesFromRect(answerEl.getBoundingClientRect(), 8);
+}
+
+function goNext() {
+  answers[PROMPTS[step].key] = answerEl.value.trim();
+  if (step < PROMPTS.length - 1) {
+    nudgeAnswerBox(); // the witness itself stays still — the textbox glows instead
+    step++;
+    renderStep();
+  } else {
+    trySubmit();
+  }
+}
+
+// Estimates the caret's pixel position so typing motes can rise from the
+// word being written, not just a random point in the box. #answer uses a
+// monospace font, so a fixed char width holds exactly — no need for a full
+// mirror-div measurement. Soft-wrap is approximated by dividing the caret's
+// column by how many characters fit per visual row.
+function getCaretPixelPos(el) {
+  const style = getComputedStyle(el);
+  const rect = el.getBoundingClientRect();
+  const paddingLeft = parseFloat(style.paddingLeft) || 0;
+  const paddingTop = parseFloat(style.paddingTop) || 0;
+  const paddingRight = parseFloat(style.paddingRight) || 0;
+  const lineHeight = parseFloat(style.lineHeight) || parseFloat(style.fontSize) * 1.2;
+
+  if (!getCaretPixelPos.charWidth) {
+    const probe = document.createElement('span');
+    probe.style.font = style.font;
+    probe.style.position = 'absolute';
+    probe.style.visibility = 'hidden';
+    probe.style.whiteSpace = 'pre';
+    probe.textContent = 'MMMMMMMMMM';
+    document.body.appendChild(probe);
+    getCaretPixelPos.charWidth = probe.getBoundingClientRect().width / 10;
+    document.body.removeChild(probe);
+  }
+  const charWidth = getCaretPixelPos.charWidth;
+  const charsPerRow = Math.max(1, Math.floor((el.clientWidth - paddingLeft - paddingRight) / charWidth));
+
+  const caret = el.selectionEnd;
+  const hardLines = el.value.slice(0, caret).split('\n');
+  let visualRow = 0;
+  for (let i = 0; i < hardLines.length - 1; i++) {
+    visualRow += Math.max(1, Math.ceil(hardLines[i].length / charsPerRow));
+  }
+  const lastLine = hardLines[hardLines.length - 1];
+  visualRow += Math.floor(lastLine.length / charsPerRow);
+  const visualCol = lastLine.length % charsPerRow;
+
+  const x = rect.left + paddingLeft + visualCol * charWidth - el.scrollLeft;
+  const y = rect.top + paddingTop + visualRow * lineHeight - el.scrollTop + lineHeight * 0.5;
+  return {
+    x: Math.min(rect.right - paddingRight, Math.max(rect.left + paddingLeft, x)),
+    y: Math.min(rect.bottom, Math.max(rect.top, y)),
+  };
+}
+
+// A light trickle of motes while typing — encouragement, not a nudge; throttled
+// so it reads as ambient feedback rather than firing on every keystroke.
+let lastTypingParticleAt = 0;
+const TYPING_PARTICLE_INTERVAL_MS = 380;
+answerEl.addEventListener('input', () => {
+  if (reducedMotion) return;
+  const now = performance.now();
+  if (now - lastTypingParticleAt < TYPING_PARTICLE_INTERVAL_MS) return;
+  lastTypingParticleAt = now;
+  const pos = getCaretPixelPos(answerEl);
+  spawnFloatParticlesFromPoint(pos.x, pos.y, 1);
+});
+
+continueBtn.addEventListener('click', goNext);
+
+function trySubmit() {
+  answers[PROMPTS[step].key] = answerEl.value.trim();
+  const unanswered = PROMPTS.filter((p) => !answers[p.key]);
+  if (unanswered.length > 0) {
+    confirmListEl.textContent = 'Unanswered: ' + unanswered.map((p) => p.question).join(', ');
+    confirmEl.classList.add('show');
+  } else {
+    submitSession();
+  }
+}
+
+confirmBackBtn.addEventListener('click', () => {
+  confirmEl.classList.remove('show');
+});
+confirmYesBtn.addEventListener('click', () => {
+  confirmEl.classList.remove('show');
+  submitSession();
+});
+
+/* ---------- side menu: hidden arrow, hover reveals View/Edit Stories / Exit ---------- */
+const viewStoriesBtn = document.getElementById('view-stories-btn');
+const editStoriesBtn = document.getElementById('edit-stories-btn');
+const exitBtn = document.getElementById('exit-btn');
+const storiesOverlay = document.getElementById('stories-overlay');
+const storiesCloseBtn = document.getElementById('stories-close');
+
+const storiesListEl = document.getElementById('stories-list');
+const PROMPT_LABELS = Object.fromEntries(PROMPTS.map((p) => [p.key, p.question]));
+
+// Each session renders as its own small table — one story record, grouped
+// under a caption naming when it happened, one row per answered prompt.
+function buildReadOnlyTable(session) {
+  const table = document.createElement('table');
+  table.className = 'story-table';
+
+  const caption = document.createElement('caption');
+  caption.textContent = new Date(session.created_at).toLocaleString();
+  table.appendChild(caption);
+
+  const tbody = document.createElement('tbody');
+  if (!session.entries.length) {
+    const tr = document.createElement('tr');
+    const td = document.createElement('td');
+    td.colSpan = 2;
+    td.textContent = '(nothing written this visit)';
+    tr.appendChild(td);
+    tbody.appendChild(tr);
+  } else {
+    for (const entry of session.entries) {
+      const tr = document.createElement('tr');
+      const th = document.createElement('th');
+      th.textContent = PROMPT_LABELS[entry.prompt] || entry.prompt;
+      const td = document.createElement('td');
+      td.textContent = entry.text;
+      tr.appendChild(th);
+      tr.appendChild(td);
+      tbody.appendChild(tr);
+    }
+  }
+  table.appendChild(tbody);
+  return table;
+}
+
+function buildEditableEntry(entry) {
+  const row = document.createElement('div');
+  row.className = 'story-entry-edit';
+
+  const label = document.createElement('span');
+  label.className = 'story-prompt';
+  label.textContent = PROMPT_LABELS[entry.prompt] || entry.prompt;
+  row.appendChild(label);
+
+  const textarea = document.createElement('textarea');
+  textarea.className = 'story-edit-textarea';
+  textarea.value = entry.text;
+  row.appendChild(textarea);
+
+  const controls = document.createElement('div');
+  controls.className = 'story-edit-controls';
+
+  const saveBtn = document.createElement('button');
+  saveBtn.textContent = 'Save';
+  saveBtn.addEventListener('click', () => {
+    fetch(`/api/entries/${entry.id}`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ text: textarea.value }),
+    }).catch((err) => console.error('failed to save entry', err));
+  });
+
+  const delBtn = document.createElement('button');
+  delBtn.textContent = 'Delete';
+  delBtn.addEventListener('click', () => {
+    fetch(`/api/entries/${entry.id}`, { method: 'DELETE' })
+      .then(() => loadStories(true))
+      .catch((err) => console.error('failed to delete entry', err));
+  });
+
+  controls.appendChild(saveBtn);
+  controls.appendChild(delBtn);
+  row.appendChild(controls);
+  return row;
+}
+
+function renderStories(sessions, editable) {
+  storiesListEl.textContent = '';
+  if (!sessions.length) {
+    const p = document.createElement('p');
+    p.className = 'empty';
+    p.textContent = 'Nothing saved yet — cross back once you have a story to tell.';
+    storiesListEl.appendChild(p);
+    return;
+  }
+  for (const session of sessions) {
+    if (!editable) {
+      storiesListEl.appendChild(buildReadOnlyTable(session));
+      continue;
+    }
+
+    const wrap = document.createElement('div');
+    wrap.className = 'story-session';
+
+    const date = document.createElement('p');
+    date.className = 'story-date';
+    date.textContent = new Date(session.created_at).toLocaleString();
+    wrap.appendChild(date);
+
+    if (!session.entries.length) {
+      const p = document.createElement('p');
+      p.className = 'story-entry';
+      p.textContent = '(nothing written this visit)';
+      wrap.appendChild(p);
+    }
+    for (const entry of session.entries) {
+      wrap.appendChild(buildEditableEntry(entry));
+    }
+
+    if (session.entries.length) {
+      const delSessionBtn = document.createElement('button');
+      delSessionBtn.className = 'story-delete-session';
+      delSessionBtn.textContent = 'Delete this day';
+      delSessionBtn.addEventListener('click', () => {
+        fetch(`/api/sessions/${session.id}`, { method: 'DELETE' })
+          .then(() => loadStories(true))
+          .catch((err) => console.error('failed to delete session', err));
+      });
+      wrap.appendChild(delSessionBtn);
+    }
+
+    storiesListEl.appendChild(wrap);
+  }
+}
+
+function loadStories(editable) {
+  storiesListEl.textContent = 'Loading…';
+  fetch('/api/sessions')
+    .then((res) => res.json())
+    .then((sessions) => renderStories(sessions, editable))
+    .catch((err) => {
+      console.error('failed to load sessions', err);
+      storiesListEl.textContent = 'Could not load past sessions.';
+    });
+}
+
+viewStoriesBtn.addEventListener('click', () => {
+  storiesOverlay.classList.remove('editable');
+  storiesOverlay.classList.add('show');
+  loadStories(false);
+});
+editStoriesBtn.addEventListener('click', () => {
+  storiesOverlay.classList.add('editable', 'show');
+  loadStories(true);
+});
+storiesCloseBtn.addEventListener('click', () => {
+  storiesOverlay.classList.remove('show');
+});
+exitBtn.addEventListener('click', () => {
+  location.href = '/';
+});
+
+// The witness's full quote pool — per the domain model, it always answers,
+// never blank, never advice. "opening"/"closing" entries are reserved for
+// future greeting/farewell use; the ending quote draws from "quote" and
+// "reflection" only.
+const twilightReflections = [
+  { id: 1, type: "opening", tradition: "Spirit", text: "The day has ended. You do not have to solve it anymore. Sit beside it, and let us wonder what it was trying to teach you.", author: "Spirit", prompt: "What part of today is still asking to be heard?" },
+  { id: 2, type: "quote", tradition: "Christianity", text: "Be still, and know that I am God.", author: "Psalm 46:10", prompt: "What becomes clearer when you stop forcing an answer?" },
+  { id: 3, type: "reflection", tradition: "Jungian Psychology", text: "Do not rush to banish the part of you that struggled today. It may be carrying a truth your stronger face could not admit.", author: "Spirit", prompt: "What did your frustration protect?" },
+  { id: 4, type: "quote", tradition: "Stoicism", text: "The soul is dyed by the thoughts.", author: "Marcus Aurelius", prompt: "Which thought colored most of your day?" },
+  { id: 5, type: "reflection", tradition: "Daoism", text: "The river does not accuse the stone of delaying it. It bends, continues, and slowly discovers another way.", author: "Spirit", prompt: "Where might gentleness work better than force?" },
+  { id: 6, type: "quote", tradition: "Christianity", text: "Do not be anxious about tomorrow, for tomorrow will be anxious for itself.", author: "Jesus, Matthew 6:34", prompt: "What burden belongs to tomorrow rather than tonight?" },
+  { id: 7, type: "reflection", tradition: "Twilight", text: "Not every unfinished thing is a failure. Some things are simply sleeping between one day and the next.", author: "Spirit", prompt: "What can you allow to remain unfinished?" },
+  { id: 8, type: "quote", tradition: "Jungian Psychology", text: "The shadow is a moral problem that challenges the whole ego-personality.", author: "Carl Jung", prompt: "What reaction today showed you a hidden part of yourself?" },
+  { id: 9, type: "reflection", tradition: "Jungian Psychology", text: "Wholeness is not becoming endlessly good. It is becoming honest enough to recognize what else lives within you.", author: "Spirit", prompt: "What feeling did you judge before understanding it?" },
+  { id: 10, type: "quote", tradition: "Civil Rights and Spiritual Courage", text: "Only when it is dark enough can you see the stars.", author: "Martin Luther King Jr.", prompt: "What small light became visible because today was difficult?" },
+  { id: 11, type: "reflection", tradition: "Buddhist-Inspired", text: "A painful thought may enter the mind without being given a permanent room there.", author: "Spirit", prompt: "Which thought can you notice without continuing to feed it?" },
+  { id: 12, type: "quote", tradition: "Stoicism", text: "Wish the things which happen to be as they are, and you will have a tranquil flow of life.", author: "Epictetus", prompt: "What reality exhausted you because you were arguing with it?" },
+  { id: 13, type: "reflection", tradition: "Christian Contemplation", text: "Grace does not wait for you to become impressive. It meets you where the performance ends.", author: "Spirit", prompt: "What would remain lovable about you without today's achievements?" },
+  { id: 14, type: "reflection", tradition: "Daoism", text: "Rest is not the opposite of movement. Winter rests, roots deepen, and the unseen world continues its work.", author: "Spirit", prompt: "What might be growing quietly beneath your tiredness?" },
+  { id: 15, type: "reflection", tradition: "Twilight", text: "The evening sky does not apologize for losing the sun. It changes color and becomes beautiful in another way.", author: "Spirit", prompt: "What change are you still treating as a loss?" },
+  { id: 16, type: "reflection", tradition: "Jungian Psychology", text: "The person who irritated you may not define you, but your reaction may reveal where an old wound still expects danger.", author: "Spirit", prompt: "Was your reaction only about today?" },
+  { id: 17, type: "reflection", tradition: "Stoic-Inspired", text: "You were responsible for your attention, your choices, and your effort—not for controlling every consequence.", author: "Spirit", prompt: "What did you carry today that was never fully yours to control?" },
+  { id: 18, type: "reflection", tradition: "Christianity", text: "Perhaps faith tonight is not certainty. Perhaps it is simply placing the next day into hands larger than your own.", author: "Spirit", prompt: "What are you ready to surrender for one night?" },
+  { id: 19, type: "reflection", tradition: "Eastern Philosophy", text: "An empty cup is not useless. Its emptiness is what allows it to receive.", author: "Spirit", prompt: "What space was created by what you lost or released?" },
+  { id: 20, type: "reflection", tradition: "Twilight", text: "You may be tired because you cared, confused because you are changing, and quiet because something within you is rearranging itself.", author: "Spirit", prompt: "What if your tiredness is not evidence that you are failing?" },
+  { id: 21, type: "reflection", tradition: "Jungian Psychology", text: "What you envy may be showing you an unlived possibility—not demanding imitation, but inviting attention.", author: "Spirit", prompt: "What desire was hidden inside today's envy?" },
+  { id: 22, type: "reflection", tradition: "Compassion", text: "Speak to the person you were this morning with tenderness. They acted without knowing everything you know now.", author: "Spirit", prompt: "What can you forgive yourself for tonight?" },
+  { id: 23, type: "reflection", tradition: "Twilight", text: "Some days are not meant to be conquered. They are meant to be survived, witnessed, and gently put down.", author: "Spirit", prompt: "Can surviving today be enough?" },
+  { id: 24, type: "closing", tradition: "Spirit", text: "You have examined enough for tonight. Keep the lesson, release the punishment, and let the darkness carry what you no longer need to hold.", author: "Spirit", prompt: "What will you leave here before you sleep?" },
+];
+const QUOTES = twilightReflections.filter((r) => r.type === 'quote' || r.type === 'reflection');
+
+const quoteAuthorEl = document.getElementById('quote-author');
+function setQuoteAuthor(text) {
+  if (text) {
+    quoteAuthorEl.textContent = '— ' + text;
+    quoteAuthorEl.classList.add('show');
+  } else {
+    quoteAuthorEl.classList.remove('show');
+    quoteAuthorEl.textContent = '';
+  }
+}
+
+const FAREWELL_LINE = 'Take care, traveller. I await your next return.';
+const THANK_YOU_LINES = ['Thank you. Your stories are always entertaining.'];
+
+const PARTICLE_COUNT = 60;
+const ABSORB_MS = 1300;          // particle travel + stagger, before the pulse lands
+const THANK_YOU_PAUSE_MS = 1400; // after the thank-you, before the quote
+const LEAVE_BTN_PAUSE_MS = 900;  // after the quote, before the leave button appears
+const FAREWELL_PAUSE_MS = 1800;  // after the farewell finishes typing, before the fade to black
+const EXIT_FADE_MS = 2200;       // matches #void-overlay's own opacity transition
+
+const voidOverlayEl = document.getElementById('void-overlay');
+const leaveVoidBtn = document.getElementById('leave-void-btn');
+
+function submitSession() {
+  fetch('/api/sessions', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ answers }),
+  }).catch((err) => console.error('failed to save session', err));
+
+  const rect = panelEl.getBoundingClientRect();
+  panelEl.classList.remove('show');
+  if (reducedMotion) {
+    showEnding();
+  } else {
+    spawnParticlesFromRect(rect, PARTICLE_COUNT);
+    setTimeout(showEnding, ABSORB_MS);
+  }
+}
+
+// The closing passage: thank-you, then a wisdom quote that stays up on
+// screen — not auto-followed by anything — until "Leave the void" is
+// clicked. Only then does the farewell play, right before the fade to black.
+function showEnding() {
+  pulseSpirit();
+  panelEl.classList.add('pulsing', 'quote-mode');
+  setQuoteAuthor(null);
+  const thankYou = THANK_YOU_LINES[Math.floor(Math.random() * THANK_YOU_LINES.length)];
+  typeQuestion(thankYou, () => {
+    setTimeout(() => {
+      const entry = QUOTES[Math.floor(Math.random() * QUOTES.length)];
+      typeQuestion(entry.text, () => {
+        if (entry.author !== 'Spirit') setQuoteAuthor(entry.author);
+        setTimeout(() => leaveVoidBtn.classList.add('show'), LEAVE_BTN_PAUSE_MS);
+      });
+    }, THANK_YOU_PAUSE_MS);
+  });
+  requestAnimationFrame(() => panelEl.classList.add('show'));
+}
+
+function exitToThreshold() {
+  leaveVoidBtn.classList.remove('show');
+  setQuoteAuthor(null);
+  typeQuestion(FAREWELL_LINE, () => {
+    setTimeout(() => {
+      panelEl.classList.remove('show');
+      voidOverlayEl.style.opacity = '1';
+      setTimeout(() => { location.href = '/'; }, EXIT_FADE_MS + 200);
+    }, FAREWELL_PAUSE_MS);
+  });
+}
+leaveVoidBtn.addEventListener('click', exitToThreshold);
+
+showGreeting();
+requestAnimationFrame(() => panelEl.classList.add('show'));
+</script>
+</body>
+</html>
