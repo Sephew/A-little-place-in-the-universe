@@ -1,10 +1,10 @@
 Primal MVP working
 
-Uses turso for db, Google Cloud for hosting
+Uses turso for db, vercel for hosting
 
 
 
-Landing -> UX -> Saving stories
+[done] Landing -> UX -> Saving stories
 
 
 Built this mostly for me
