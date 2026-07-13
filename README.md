@@ -21,3 +21,9 @@ Uses turso for db, vercel for hosting
 
 
 Built this mostly for me
+
+
+
+### CREDIT
+ Gargantua — WebGL2 port of sonicether's Shadertoy lstSRS
+   (CC BY-NC-SA 3.0, original by Cody "sonicether" Darr)
