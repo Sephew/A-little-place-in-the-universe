@@ -64,6 +64,31 @@
   #answer:focus { outline:none; border-bottom-color:rgba(255,255,255,0.55); }
   #answer.nudge { border-bottom-color:rgba(220,230,255,0.8); box-shadow:0 12px 24px -8px rgba(200,220,255,0.5); }
 
+  #return-form { display:none; }
+  #panel.asking-return #controls { display:none; }
+  #panel.asking-return #return-form { display:block; }
+  #return-prompt { margin:0 0 20px; min-height:1.5em; color:#fff; text-shadow:0 0 18px rgba(210,225,255,0.6); }
+  #return-prompt .cursor {
+    display:inline-block; margin-left:2px; color:rgba(255,255,255,0.65);
+    animation:blink 1s steps(1) infinite;
+  }
+  #return-form input {
+    display:block; width:100%; box-sizing:border-box; padding:10px 2px; margin-bottom:16px;
+    background:transparent; border:none; border-bottom:1px solid rgba(255,255,255,0.18);
+    color:#fff; font:13px/1.6 'Courier New', ui-monospace, monospace;
+  }
+  #return-form input::placeholder { color:rgba(255,255,255,0.3); }
+  #return-form input:focus { outline:none; border-bottom-color:rgba(255,255,255,0.55); }
+  #return-error { display:none; margin:0 0 12px; font-size:12px; color:rgba(255,120,120,0.85); }
+  #return-error.show { display:block; }
+  #return-submit { background:#e6e6e6; color:#111; width:100%; }
+  #return-submit:hover { background:#fff; }
+  #return-toggle, #return-skip {
+    display:inline-block; margin-top:16px; margin-right:18px; font-size:12px;
+    color:rgba(255,255,255,0.5); text-decoration:none; cursor:pointer;
+  }
+  #return-toggle:hover, #return-skip:hover { color:rgba(255,255,255,0.85); }
+
   #controls { display:flex; justify-content:flex-end; gap:12px; }
   button {
     font:13px/1 'Courier New', ui-monospace, monospace; letter-spacing:0.04em;
@@ -246,6 +271,14 @@
   <div id="controls">
     <button id="continue-btn">Continue</button>
   </div>
+  <form id="return-form">
+    <p id="return-prompt"></p>
+    <input id="return-username" type="text" placeholder="a name in the dark (username)" autocomplete="username">
+    <p id="return-error"></p>
+    <button type="submit" id="return-submit">Come back to me</button>
+    <a id="return-toggle">Been here before? Sign in</a>
+    <a id="return-skip">Not this time</a>
+  </form>
 </div>
 
 <button id="leave-void-btn">Leave the void</button>
@@ -978,13 +1011,9 @@ const EXIT_FADE_MS = 2200;       // matches #void-overlay's own opacity transiti
 const voidOverlayEl = document.getElementById('void-overlay');
 const leaveVoidBtn = document.getElementById('leave-void-btn');
 
+// The story isn't saved here anymore — the visitor is still anonymous at this
+// point. It's saved after the quote, once they answer "will you come back?".
 function submitSession() {
-  fetch('/api/sessions', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ answers }),
-  }).catch((err) => console.error('failed to save session', err));
-
   const rect = panelEl.getBoundingClientRect();
   panelEl.classList.remove('show');
   if (reducedMotion) {
@@ -1008,12 +1037,134 @@ function showEnding() {
       const entry = QUOTES[Math.floor(Math.random() * QUOTES.length)];
       typeQuestion(entry.text, () => {
         if (entry.author !== 'Spirit') setQuoteAuthor(entry.author);
-        setTimeout(() => leaveVoidBtn.classList.add('show'), LEAVE_BTN_PAUSE_MS);
+        setTimeout(promptReturn, LEAVE_BTN_PAUSE_MS);
       });
     }, THANK_YOU_PAUSE_MS);
   });
   requestAnimationFrame(() => panelEl.classList.add('show'));
 }
+
+/* ---------- "will you come back?": the account is created (or signed into)
+   here, after the quote, and only then is the story saved to it. Already
+   signed-in visitors skip the form — their story is just kept. ---------- */
+let authed = false;
+let saved = false;
+let returnMode = 'signup';
+
+const returnPromptEl = document.getElementById('return-prompt');
+const returnForm = document.getElementById('return-form');
+const returnUsername = document.getElementById('return-username');
+const returnError = document.getElementById('return-error');
+const returnToggle = document.getElementById('return-toggle');
+const returnSkip = document.getElementById('return-skip');
+const returnSubmit = document.getElementById('return-submit');
+
+function saveAnswers() {
+  if (saved) return Promise.resolve();
+  saved = true;
+  return fetch('/api/sessions', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ answers }),
+  }).catch((err) => console.error('failed to save session', err));
+}
+
+function revealLeave() { leaveVoidBtn.classList.add('show'); }
+
+// The spirit speaks the invitation in its own typed voice, same as the panel.
+let returnPromptTimer = null;
+function typeReturnPrompt(text) {
+  if (returnPromptTimer) clearInterval(returnPromptTimer);
+  returnPromptEl.textContent = '';
+  const cursor = document.createElement('span');
+  cursor.className = 'cursor';
+  cursor.textContent = '█';
+  returnPromptEl.appendChild(cursor);
+  if (reducedMotion) { cursor.insertAdjacentText('beforebegin', text); return; }
+  let i = 0;
+  returnPromptTimer = setInterval(() => {
+    if (i >= text.length) { clearInterval(returnPromptTimer); returnPromptTimer = null; return; }
+    cursor.insertAdjacentText('beforebegin', text[i++]);
+  }, 34);
+}
+
+function promptReturn() {
+  if (authed) {           // already has an account — keep the story, let them go
+    saveAnswers().finally(revealLeave);
+    return;
+  }
+  panelEl.classList.add('asking-return');
+  // If we remember a name, greet them as a returning visitor: pre-fill and
+  // default to "sign in" so coming back is a single tap.
+  const saved = recalled();
+  if (saved) { returnUsername.value = saved; returnMode = 'login'; }
+  applyReturnMode(false);
+  setTimeout(() => returnUsername.focus(), 600);
+}
+
+function fadeSwap(el, text) {
+  el.style.transition = 'opacity 0.22s ease';
+  el.style.opacity = '0';
+  setTimeout(() => { el.textContent = text; el.style.opacity = '1'; }, 200);
+}
+
+// Remember the last name across visits so returning here is one keystroke.
+const remember = (name) => { try { localStorage.setItem('username', name); } catch (_) {} };
+function recalled() { try { return localStorage.getItem('username'); } catch (_) { return ''; } }
+
+// Sets the return-form's labels + typed prompt for the current mode. `animate`
+// crossfades the labels (on toggle); false sets them instantly (on first show).
+function applyReturnMode(animate) {
+  const signup = returnMode === 'signup';
+  const submitText = signup ? 'Come back to me' : 'Sign in';
+  const toggleText = signup ? 'Been here before? Sign in' : 'New here? Create an account';
+  typeReturnPrompt(signup ? 'Will you come back?' : 'Have we met before?');
+  if (animate) {
+    fadeSwap(returnSubmit, submitText);
+    fadeSwap(returnToggle, toggleText);
+  } else {
+    returnSubmit.textContent = submitText;
+    returnToggle.textContent = toggleText;
+  }
+  returnError.classList.remove('show');
+}
+
+returnToggle.addEventListener('click', () => {
+  returnMode = returnMode === 'signup' ? 'login' : 'signup';
+  applyReturnMode(true);
+});
+
+returnForm.addEventListener('submit', (e) => {
+  e.preventDefault();
+  returnError.classList.remove('show');
+  fetch('/api/' + returnMode, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ username: returnUsername.value }),
+  }).then(async (res) => {
+    if (!res.ok) {
+      const data = await res.json().catch(() => ({}));
+      returnError.textContent = data.error || 'Something went wrong.';
+      returnError.classList.add('show');
+      return;
+    }
+    remember(returnUsername.value.trim().toLowerCase());
+    await saveAnswers();
+    panelEl.classList.remove('asking-return');
+    setQuoteAuthor(null);
+    typeQuestion('Then I will keep this until you return.', () => {
+      setTimeout(revealLeave, LEAVE_BTN_PAUSE_MS);
+    });
+  }).catch(() => {
+    returnError.textContent = 'Something went wrong. Try again.';
+    returnError.classList.add('show');
+  });
+});
+
+returnSkip.addEventListener('click', () => {
+  panelEl.classList.remove('asking-return');
+  revealLeave();
+});
 
 function exitToThreshold() {
   leaveVoidBtn.classList.remove('show');
@@ -1027,6 +1178,16 @@ function exitToThreshold() {
   });
 }
 leaveVoidBtn.addEventListener('click', exitToThreshold);
+
+// Anonymous visitors have no stories and nothing to log out of — hide those
+// until they've created an account at the end.
+fetch('/api/me').then((r) => r.json()).then((d) => {
+  authed = !!d.authed;
+  if (!authed) {
+    ['void-logout-btn', 'void-view-stories-btn', 'view-stories-btn', 'edit-stories-btn']
+      .forEach((id) => { const el = document.getElementById(id); if (el) el.style.display = 'none'; });
+  }
+}).catch(() => {});
 
 showGreeting();
 requestAnimationFrame(() => panelEl.classList.add('show'));

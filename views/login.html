@@ -1,0 +1,138 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>A Little Place in the Universe</title>
+<style>
+  html, body { margin:0; padding:0; height:100%; background:#000; overflow:hidden; }
+  body {
+    display:flex; align-items:center; justify-content:center;
+    font:14px/1.5 'Courier New', ui-monospace, monospace; color:rgba(255,255,255,0.85);
+  }
+  #box {
+    width:min(360px, 86vw); padding:32px 36px;
+    background:rgba(10,12,20,0.85); border-radius:16px; backdrop-filter:blur(10px);
+    box-shadow:0 0 1px rgba(255,255,255,0.12), 0 0 70px rgba(190,210,255,0.10);
+  }
+  h1 { margin:0 0 8px; font-size:16px; color:#fff; font-weight:normal; }
+  p { margin:0 0 20px; color:rgba(255,255,255,0.5); }
+  input {
+    display:block; width:100%; box-sizing:border-box;
+    padding:10px 2px; margin-bottom:16px;
+    background:transparent; border:none; border-bottom:1px solid rgba(255,255,255,0.18);
+    color:#fff; font:14px/1.5 'Courier New', ui-monospace, monospace;
+  }
+  input:focus { outline:none; border-bottom-color:rgba(255,255,255,0.55); }
+  button {
+    width:100%; font:13px/1 'Courier New', ui-monospace, monospace; letter-spacing:0.04em;
+    border:none; border-radius:6px; padding:12px 18px; cursor:pointer;
+    background:#e6e6e6; color:#111; transition:background 0.2s ease, transform 0.15s ease;
+  }
+  button:hover { background:#fff; }
+  button:active { transform:scale(0.98); }
+  #error {
+    display:none; margin:0 0 16px; font-size:12px; color:rgba(255,120,120,0.85);
+  }
+  #error.show { display:block; }
+  #toggle { display:block; margin-top:16px; text-align:center; font-size:12px;
+    color:rgba(255,255,255,0.5); text-decoration:none; cursor:pointer; }
+  #toggle:hover { color:rgba(255,255,255,0.8); }
+  /* the spirit's voice: typed out, faintly glowing, with a blinking block cursor */
+  #subtitle {
+    min-height:2.9em; text-shadow:0 0 18px rgba(200,220,255,0.35);
+    color:rgba(255,255,255,0.72);
+  }
+  .cursor { display:inline-block; margin-left:2px; animation:blink 1.05s steps(1) infinite; }
+  @keyframes blink { 50% { opacity:0; } }
+  #submit, #toggle { transition:opacity 0.22s ease, background 0.2s ease, color 0.2s ease; }
+</style>
+</head>
+<body>
+<div id="box">
+  <h1>Whisper into the Universe</h1>
+  <p id="subtitle"></p>
+  <p id="error"></p>
+  <form id="form">
+    <input id="username" type="text" placeholder="Username" autofocus autocomplete="username">
+    <button type="submit" id="submit">Enter</button>
+  </form>
+  <a id="toggle">New here? Create an account</a>
+</div>
+<script>
+'use strict';
+const form = document.getElementById('form');
+const usernameEl = document.getElementById('username');
+const errorEl = document.getElementById('error');
+const toggle = document.getElementById('toggle');
+const submit = document.getElementById('submit');
+const subtitle = document.getElementById('subtitle');
+
+const reduced = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+const LINES = {
+  login:  'This place remembers you. Sign in to cross.',
+  signup: 'This place will remember you. Create an account to begin.',
+};
+
+// Remember the last name across visits so returning here is one keystroke.
+const remember = (name) => { try { localStorage.setItem('username', name); } catch (_) {} };
+const recalled = () => { try { return localStorage.getItem('username'); } catch (_) { return ''; } };
+usernameEl.value = recalled() || '';
+
+// The spirit speaks: text types out char-by-char behind a blinking cursor,
+// same voice as the void. Re-called on toggle so the spirit re-speaks.
+let typeTimer = null;
+function speak(text) {
+  if (typeTimer) clearInterval(typeTimer);
+  subtitle.textContent = '';
+  const cursor = document.createElement('span');
+  cursor.className = 'cursor';
+  cursor.textContent = '█';
+  subtitle.appendChild(cursor);
+  if (reduced) { cursor.insertAdjacentText('beforebegin', text); return; }
+  let i = 0;
+  typeTimer = setInterval(() => {
+    if (i >= text.length) { clearInterval(typeTimer); typeTimer = null; return; }
+    cursor.insertAdjacentText('beforebegin', text[i++]);
+  }, 34);
+}
+
+// Labels aren't the spirit's voice, so they crossfade rather than type.
+function fadeSwap(el, text) {
+  el.style.opacity = '0';
+  setTimeout(() => { el.textContent = text; el.style.opacity = '1'; }, 200);
+}
+
+let mode = 'login';
+toggle.addEventListener('click', () => {
+  mode = mode === 'login' ? 'signup' : 'login';
+  const signup = mode === 'signup';
+  speak(LINES[mode]);
+  fadeSwap(submit, signup ? 'Create account' : 'Enter');
+  fadeSwap(toggle, signup ? 'Already have an account? Sign in' : 'New here? Create an account');
+  errorEl.classList.remove('show');
+});
+
+speak(LINES.login);  // the spirit greets you on arrival
+
+form.addEventListener('submit', (e) => {
+  e.preventDefault();
+  errorEl.classList.remove('show');
+  fetch('/api/' + mode, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ username: usernameEl.value }),
+  }).then(async (res) => {
+    if (res.ok) { remember(usernameEl.value.trim().toLowerCase()); location.href = '/'; return; }
+    const data = await res.json().catch(() => ({}));
+    errorEl.textContent = data.error || 'Something went wrong.';
+    errorEl.classList.add('show');
+    usernameEl.focus();
+  }).catch(() => {
+    errorEl.textContent = 'Something went wrong. Try again.';
+    errorEl.classList.add('show');
+  });
+});
+</script>
+</body>
+</html>

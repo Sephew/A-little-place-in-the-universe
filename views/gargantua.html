@@ -33,6 +33,14 @@
   }
   #site-nav a { color:rgba(255,255,255,0.55); text-decoration:none; transition:color 0.2s ease; }
   #site-nav a:hover { color:#fff; }
+  #sign-in {
+    position:fixed; z-index:5;
+    top:max(24px, env(safe-area-inset-top)); right:max(24px, env(safe-area-inset-right));
+    color:rgba(255,255,255,0.55); text-decoration:none;
+    font:12px/1 'Courier New', ui-monospace, monospace; letter-spacing:0.12em; text-transform:uppercase;
+    transition:color 0.2s ease, opacity 0.4s ease;
+  }
+  #sign-in:hover { color:#fff; }
   #threshold-backdrop {
     position:fixed; left:0; right:0; top:50%; transform:translateY(-50%);
     height:200px; background:rgba(0,0,0,0.45);
@@ -74,6 +82,7 @@
   <a href="#">Explore</a>
   <a href="#">Credits</a>
 </nav>
+<a id="sign-in" href="/login">Sign in</a>
 <div id="threshold-backdrop"></div>
 <div id="threshold-box">
   <h1>Whisper into the Universe</h1>
@@ -488,6 +497,7 @@ void main()
     color = saturate(color * 1.01);
 
     color = pow(color, vec3(0.7 / 2.2));
+    color *= 0.8;   // overall brightness — lower to dim the black hole, raise to brighten
     fragColor = vec4(color, 1.0);
 }`;
 
@@ -642,7 +652,8 @@ const state = {
   ping: null, pong: null,           // buffer A ping-pong
   bloomD: [], bloomT: [],           // per-level downsample + blur-temp targets
   renderW: 0, renderH: 0,
-  mouse: [0, 0],                    // normalized, (0,0) = untouched (Shadertoy default)
+  mouse: [0.35, 0.15],              // normalized camera target, eased toward the pointer each frame
+  pointer: null,                    // latest normalized cursor pos, null until the mouse moves
   dragging: false,
   frame: 0,
   resetAccum: false,
@@ -707,6 +718,7 @@ function enterVoid() {
   navEl.classList.add('fading-out');
   boxEl.classList.add('fading-out');
   backdropEl.classList.add('fading-out');
+  document.getElementById('sign-in').classList.add('fading-out');
   overlayEl.style.transitionDuration = (ZOOM_MS + 300) + 'ms';
   overlayEl.style.opacity = '1';
   snapshotEl.classList.add('entering');
@@ -717,6 +729,14 @@ function enterVoid() {
 // or the title text sitting centered over it) to cross the threshold.
 canvas.addEventListener('click', enterVoid);
 boxEl.addEventListener('click', enterVoid);
+
+// Mouse-follow knobs. Deliberately tiny — a faint lean toward the cursor, not a
+// swing. FOLLOW_LEAN is how far uMouse shifts at the screen edge (bigger = more
+// motion, and more path-tracer smear); FOLLOW_EASE is per-frame catch-up speed
+// (smaller = slower and smoother). Nudge these to taste.
+const FOLLOW_LEAN_X = 0.05;
+const FOLLOW_LEAN_Y = 0.035;
+const FOLLOW_EASE = 0.015;
 
 /* ---------- frame ---------- */
 function draw(now) {
@@ -754,16 +774,24 @@ function draw(now) {
 
   const t = reducedMotion ? 12.0 : (now - state.t0) / 1000;
 
-  // camera source
-  let mouse = state.mouse;
-  let dragging = state.dragging ? 1 : 0;
-  let blend = 0.9;
-  if (T.drift && !reducedMotion) {
-    mouse = [0.35 + 0.08 * Math.sin(t * 0.05), 0.15 + 0.08 * Math.sin(t * 0.032 + 1.7)];
-    blend = 0.85;
-  } else if (coarse || T.freeze) {
-    mouse = [0.35, 0.15];
+  // camera source: a gentle idle sway keeps it alive; the pointer nudges the
+  // target and state.mouse eases toward it for a slow, weighty follow. A moving
+  // camera means the path tracer never fully converges — that's the cost of a
+  // live, mouse-following black hole (see the freeze note below).
+  let blend = 0.85;
+  if (reducedMotion) {
+    state.mouse = [0.35, 0.15];
+    blend = 0.9;
+  } else {
+    const idleX = 0.35 + 0.05 * Math.sin(t * 0.05);
+    const idleY = 0.15 + 0.05 * Math.sin(t * 0.032 + 1.7);
+    const targetX = state.pointer ? idleX + (state.pointer[0] - 0.5) * FOLLOW_LEAN_X : idleX;
+    const targetY = state.pointer ? idleY + (state.pointer[1] - 0.5) * FOLLOW_LEAN_Y : idleY;
+    state.mouse[0] += (targetX - state.mouse[0]) * FOLLOW_EASE;
+    state.mouse[1] += (targetY - state.mouse[1]) * FOLLOW_EASE;
   }
+  const mouse = state.mouse;
+  const dragging = 0;
   if (state.resetAccum) { blend = 0; state.resetAccum = false; }
 
   const prev = state.ping, curr = state.pong;
@@ -840,10 +868,9 @@ function draw(now) {
   state.pong = prev; state.ping = curr;
   state.frame++;
 
-  // stop once temporally converged and not being actively orbited —
-  // the auto-tier-down cap tops out at tier 2, so TIERS[tier].freeze was
-  // previously unreachable and this render loop never stopped on its own.
-  if (!state.dragging && state.frame > 150) state.frozen = true;
+  // Only reduced-motion visitors get the converge-and-freeze; everyone else
+  // keeps rendering so the disk flows and the camera can follow the mouse.
+  if (reducedMotion && state.frame > 60) state.frozen = true;
 
   if (DEBUG && (state.frame & 15) === 0) {
     const dt = state.dts.length ? state.dts[state.dts.length - 1] : 0;
@@ -872,6 +899,13 @@ window.addEventListener('resize', () => {
   resizeTimer = setTimeout(() => { rebuild(); wake(); }, 150);
 });
 
+// Slow mouse-follow: record the cursor; the draw loop eases the camera toward it.
+canvas.addEventListener('pointermove', (e) => {
+  const r = canvas.getBoundingClientRect();
+  state.pointer = [(e.clientX - r.left) / r.width, (e.clientY - r.top) / r.height];
+  wake();
+});
+
 canvas.addEventListener('webglcontextlost', (e) => {
   e.preventDefault();
   fail();
@@ -880,6 +914,18 @@ canvas.addEventListener('webglcontextlost', (e) => {
 rebuild();
 running = true;
 requestAnimationFrame(draw);
+
+// Signed in? The corner link becomes "Log out"; otherwise it stays "Sign in".
+const signInEl = document.getElementById('sign-in');
+fetch('/api/me').then((r) => r.json()).then((d) => {
+  if (!d.authed) return;
+  signInEl.textContent = 'Log out';
+  signInEl.removeAttribute('href');
+  signInEl.style.cursor = 'pointer';
+  signInEl.addEventListener('click', () => {
+    fetch('/api/logout', { method: 'POST' }).finally(() => location.reload());
+  });
+}).catch(() => {});
 
 // Mirrors the void's fade-to-black on exit: the threshold starts covered in
 // black and fades in, rather than snapping straight to full brightness.
