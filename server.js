@@ -4,7 +4,7 @@ const http = require('http');
 const crypto = require('crypto');
 const fs = require('fs');
 const path = require('path');
-const { saveSession, listSessions, updateEntry, deleteEntry, deleteSession } = require('./db');
+const { ready: dbReady, saveSession, listSessions, updateEntry, deleteEntry, deleteSession } = require('./db');
 
 const PORT = process.env.PORT || 3000;
 const PUBLIC_DIR = path.join(__dirname, 'public');
@@ -15,10 +15,10 @@ const PUBLIC_DIR = path.join(__dirname, 'public');
 const AUTH_PASSWORD = process.env.AUTH_PASSWORD;
 const SESSION_SECRET = process.env.SESSION_SECRET || crypto.randomBytes(32).toString('hex');
 const SESSION_MAX_AGE_MS = 30 * 24 * 60 * 60 * 1000;
-// Railway terminates TLS in front of the app and sets this; only mark the
+// Render terminates TLS in front of the app and sets this; only mark the
 // cookie Secure there, since a Secure cookie is silently dropped over plain
 // http (i.e. local dev).
-const IS_PROD = !!process.env.RAILWAY_ENVIRONMENT;
+const IS_PROD = !!process.env.RENDER;
 
 const ROUTES = {
   '/': 'gargantua.html',
@@ -157,21 +157,34 @@ const server = http.createServer((req, res) => {
         send(res, 400, JSON.stringify({ error: 'invalid JSON' }), 'application/json');
         return;
       }
-      const id = saveSession(body.answers || {});
-      send(res, 200, JSON.stringify({ id }), 'application/json');
+      saveSession(body.answers || {})
+        .then((id) => send(res, 200, JSON.stringify({ id }), 'application/json'))
+        .catch((dbErr) => {
+          console.error(dbErr);
+          send(res, 500, JSON.stringify({ error: 'save failed' }), 'application/json');
+        });
     });
     return;
   }
 
   if (url.pathname === '/api/sessions' && req.method === 'GET') {
-    send(res, 200, JSON.stringify(listSessions()), 'application/json');
+    listSessions()
+      .then((sessions) => send(res, 200, JSON.stringify(sessions), 'application/json'))
+      .catch((dbErr) => {
+        console.error(dbErr);
+        send(res, 500, JSON.stringify({ error: 'load failed' }), 'application/json');
+      });
     return;
   }
 
   const sessionIdMatch = url.pathname.match(/^\/api\/sessions\/(\d+)$/);
   if (sessionIdMatch && req.method === 'DELETE') {
-    deleteSession(Number(sessionIdMatch[1]));
-    send(res, 200, JSON.stringify({ ok: true }), 'application/json');
+    deleteSession(Number(sessionIdMatch[1]))
+      .then(() => send(res, 200, JSON.stringify({ ok: true }), 'application/json'))
+      .catch((dbErr) => {
+        console.error(dbErr);
+        send(res, 500, JSON.stringify({ error: 'delete failed' }), 'application/json');
+      });
     return;
   }
 
@@ -182,14 +195,22 @@ const server = http.createServer((req, res) => {
         send(res, 400, JSON.stringify({ error: 'invalid JSON' }), 'application/json');
         return;
       }
-      updateEntry(Number(entryIdMatch[1]), body.text);
-      send(res, 200, JSON.stringify({ ok: true }), 'application/json');
+      updateEntry(Number(entryIdMatch[1]), body.text)
+        .then(() => send(res, 200, JSON.stringify({ ok: true }), 'application/json'))
+        .catch((dbErr) => {
+          console.error(dbErr);
+          send(res, 500, JSON.stringify({ error: 'update failed' }), 'application/json');
+        });
     });
     return;
   }
   if (entryIdMatch && req.method === 'DELETE') {
-    deleteEntry(Number(entryIdMatch[1]));
-    send(res, 200, JSON.stringify({ ok: true }), 'application/json');
+    deleteEntry(Number(entryIdMatch[1]))
+      .then(() => send(res, 200, JSON.stringify({ ok: true }), 'application/json'))
+      .catch((dbErr) => {
+        console.error(dbErr);
+        send(res, 500, JSON.stringify({ error: 'delete failed' }), 'application/json');
+      });
     return;
   }
 
@@ -204,6 +225,13 @@ const server = http.createServer((req, res) => {
   serveFile(res, filePath);
 });
 
-server.listen(PORT, () => {
-  console.log(`listening on http://localhost:${PORT}`);
-});
+dbReady
+  .then(() => {
+    server.listen(PORT, () => {
+      console.log(`listening on http://localhost:${PORT}`);
+    });
+  })
+  .catch((err) => {
+    console.error('failed to initialize database', err);
+    process.exit(1);
+  });

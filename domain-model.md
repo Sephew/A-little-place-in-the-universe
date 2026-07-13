@@ -4,15 +4,15 @@
 
 > **v2 scope note.** The product is now: a local-only app, a single glowing spirit in a void, and exactly four fixed retro prompts. No accounts, no cloud, no LLM, no growing tree.
 
-> **v3 scope note.** Still one person, one set of data — but now reachable over the open internet (hosted on Railway) instead of localhost only. That means it needs *something* standing between "anyone with the URL" and the data: a single shared password (env var `AUTH_PASSWORD`), not a full account system. No usernames, no registration, no per-user data — there is still exactly one user. See `server.js` for the session-cookie mechanics.
+> **v3 scope note.** Still one person, one set of data — but now reachable over the open internet (hosted on Render, free tier) instead of localhost only. That means it needs *something* standing between "anyone with the URL" and the data: a single shared password (env var `AUTH_PASSWORD`), not a full account system. No usernames, no registration, no per-user data — there is still exactly one user. See `server.js` for the session-cookie mechanics. Render's free tier has no persistent disk, so the SQLite file itself moved to Turso (a hosted, libsql-compatible SQLite) — see `db.js`; locally, with no Turso env vars set, it's still a plain file on disk.
 
 ---
 
 ## 1. Posture & stack (the frame)
 
 - **Who it's for:** you, one person, one machine (or, since v3, one hosted URL). No multi-user design, no scaling concerns.
-- **Runs on:** localhost during development; hosted on Railway for real use, on a persistent volume (see below) so the SQLite file survives redeploys. Plain Node — the built-in `http` module, no Express or other server framework — serves the page and a couple of JSON endpoints.
-- **Data lives in:** a SQLite file on disk via `better-sqlite3`, written by the server — on Railway, on the attached volume (`RAILWAY_VOLUME_MOUNT_PATH`); locally, in `./data`. One file, easy to inspect, back up, or delete. No external database service. This is the one and only npm dependency.
+- **Runs on:** localhost during development; hosted on Render's free web-service tier for real use. Plain Node — the built-in `http` module, no Express or other server framework — serves the page and a couple of JSON endpoints.
+- **Data lives in:** SQLite (via the libsql-compatible `@libsql/client`, the one and only npm dependency) — locally, a plain file in `./data`, easy to inspect, back up, or delete; on Render, in a Turso-hosted database (`TURSO_DATABASE_URL` / `TURSO_AUTH_TOKEN`), since Render's free tier has no persistent disk to keep a local file on.
 - **The witness (spirit voice):** **no LLM.** A small fixed pool of hand-written lines in code, picked pseudo-randomly (avoid repeating the same line twice in a row). Zero API dependency — this is the "no gimmicks" line in the sand.
 - **Front end:** plain HTML/CSS/JS + Canvas2D for the spirit's glow. No component framework, no TypeScript, no Vite or any build step. Edit the files, refresh the page.
 - **Auth:** a single shared password (see v3 scope note above), not accounts. When `AUTH_PASSWORD` is unset (local dev), the app behaves exactly like the v2 MVP — no login screen at all. When it's set, every route except `/api/login` requires a signed session cookie, and unauthenticated requests are served `login.html` instead. There's still no per-user identity — the password gates the one and only dataset, it doesn't distinguish users. The visual **threshold** scene (see glossary) remains purely a scene transition, unrelated to this — the password gate sits in front of it, not inside it.
