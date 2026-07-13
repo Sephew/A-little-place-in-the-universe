@@ -15,10 +15,10 @@ const PUBLIC_DIR = path.join(__dirname, 'public');
 const AUTH_PASSWORD = process.env.AUTH_PASSWORD;
 const SESSION_SECRET = process.env.SESSION_SECRET || crypto.randomBytes(32).toString('hex');
 const SESSION_MAX_AGE_MS = 30 * 24 * 60 * 60 * 1000;
-// Render terminates TLS in front of the app and sets this; only mark the
-// cookie Secure there, since a Secure cookie is silently dropped over plain
-// http (i.e. local dev).
-const IS_PROD = !!process.env.RENDER;
+// Only mark the session cookie Secure when NODE_ENV=production (set this in
+// the host's env vars) — a Secure cookie is silently dropped over plain http,
+// which is what local dev uses.
+const IS_PROD = process.env.NODE_ENV === 'production';
 
 const ROUTES = {
   '/': 'gargantua.html',
