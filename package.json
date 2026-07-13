@@ -1,0 +1,16 @@
+{
+  "name": "a-little-place-in-the-universe",
+  "version": "0.1.0",
+  "private": true,
+  "description": "A void, a spirit, and four questions asked in the dark.",
+  "main": "server.js",
+  "engines": {
+    "node": ">=18"
+  },
+  "scripts": {
+    "start": "node server.js"
+  },
+  "dependencies": {
+    "better-sqlite3": "^12.11.1"
+  }
+}

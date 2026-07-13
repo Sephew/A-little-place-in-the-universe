@@ -36,10 +36,10 @@ Use /tdd to complete the task.
 
 # FEEDBACK LOOPS
 
-The app lives in `web/` (Next.js + Supabase), not the repo root. Before committing, `cd web` and run the feedback loops:
+The app lives at the repo root — plain Node (`http` module, no framework), `better-sqlite3` as the only dependency, plain HTML/CSS/JS on the front end. No build step, no TypeScript, no Next.js, no Supabase. Before committing:
 
-- `npm run test` to run the tests
-- `npm run typecheck` to run the type checker
+- Start the server (`node server.js`) and manually verify the change in a browser.
+- If a test script exists in `package.json`, run `npm test`.
 
 # COMMIT
 

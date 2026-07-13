@@ -1,23 +1,22 @@
-# Universe Tree — Domain Model & Build Plan
+# A Little Place in the Universe — Domain Model & Build Plan
 
-*Working reference produced from the grilling session. This is the shared understanding; the design brief (`prompt 1.md`) is the north star, this is how we realized it. Where the two differ, the differences are marked **[revises brief]** — they were deliberate decisions.*
+*Working reference for the shrunk MVP. This supersedes all prior tree/archetype/climate/Supabase/OpenRouter scope from earlier drafts of this file — `prompt 1.md` is still the north star for tone and feeling; this is the mechanics.*
 
-> **v1 scope note (2026-07-12).** The Hub PRD (`prd-hub.md`) is the authority for v1; a grilling session sharpened several items below (inline **[revises]** markers). Headline changes: **aesthetics is the north-star priority, "runs on most devices" is a floor, not a driver**; bake-once **Canvas2D**, not PixiJS; geometry keyed to **visible-entry count**; **no sapling** (plant straight to a tree); **size-driven maturity**, not day-based; climate character includes **motion**; the witness is a **smoky spirit figure**. Where the build order (§7) still mentions sapling/PixiJS, the PRD wins.
+> **v2 scope note.** The product is now: a local-only app, a single glowing spirit in a void, and exactly four fixed retro prompts. No accounts, no cloud, no LLM, no growing tree.
+
+> **v3 scope note.** Still one person, one set of data — but now reachable over the open internet (hosted on Railway) instead of localhost only. That means it needs *something* standing between "anyone with the URL" and the data: a single shared password (env var `AUTH_PASSWORD`), not a full account system. No usernames, no registration, no per-user data — there is still exactly one user. See `server.js` for the session-cookie mechanics.
 
 ---
 
 ## 1. Posture & stack (the frame)
 
-- **Who it's for:** you, maybe 2–3 people. Grow the architecture later if it spreads. Optimize for *the feeling*, not scale.
-- **Data lives in:** **Supabase** (free tier — Postgres + auth). It's just Postgres underneath, so migrating to a self-hosted box later is a `pg_dump`, not a rewrite. *(Flag: your private entries sit in Supabase's cloud — accepted.)*
-- **LLM (the witness):** **OpenRouter**, pinned to a **no-logging route**. Model chosen at build time for voice/tone.
-- **The world (main app):** **bake-once Canvas2D** — the deterministic tree is baked to a single glowing sprite when it changes, then each frame composites that sprite + a thin, capped atmosphere layer (climate wash, a few motes, a soft breathe). Depth is faked in the baked art, not per-frame. **[revises: was PixiJS + parallax]** — chosen for beauty-per-watt and broad device reach.
-- **Front end:** **Vanilla TypeScript + Vite + Canvas2D + supabase-js.** No component framework, no render library — the DOM is the thin auth threshold + the diegetic voice layer over the canvas. TS for the deterministic tree/lifecycle logic.
-- **The threshold (landing):** the existing **`gargantua.html`** (raw WebGL2 black-hole shader) + Supabase register/login. A separate, standalone rendering context from the tree world. Non-diegetic on purpose — a doorway crossed once.
-- **Sound:** Web Audio — an ambient drone + a few event tones. Off until first gesture, persistent mute.
-- **Platform:** responsive both; desktop-first polish, mobile first-class. Mobile writing panel designed around the keyboard (docks above it; tree stays visible).
-
-**Diegetic line (how far the fiction goes):** everything that *recurs* — arriving, writing, the witness, re-reading, settings — lives inside the fiction (settings & past trees open by *tapping the witness*, not a menu bar). The unavoidable plumbing (register/login/reset/legal) is a plain, quiet threshold you rarely see.
+- **Who it's for:** you, one person, one machine (or, since v3, one hosted URL). No multi-user design, no scaling concerns.
+- **Runs on:** localhost during development; hosted on Railway for real use, on a persistent volume (see below) so the SQLite file survives redeploys. Plain Node — the built-in `http` module, no Express or other server framework — serves the page and a couple of JSON endpoints.
+- **Data lives in:** a SQLite file on disk via `better-sqlite3`, written by the server — on Railway, on the attached volume (`RAILWAY_VOLUME_MOUNT_PATH`); locally, in `./data`. One file, easy to inspect, back up, or delete. No external database service. This is the one and only npm dependency.
+- **The witness (spirit voice):** **no LLM.** A small fixed pool of hand-written lines in code, picked pseudo-randomly (avoid repeating the same line twice in a row). Zero API dependency — this is the "no gimmicks" line in the sand.
+- **Front end:** plain HTML/CSS/JS + Canvas2D for the spirit's glow. No component framework, no TypeScript, no Vite or any build step. Edit the files, refresh the page.
+- **Auth:** a single shared password (see v3 scope note above), not accounts. When `AUTH_PASSWORD` is unset (local dev), the app behaves exactly like the v2 MVP — no login screen at all. When it's set, every route except `/api/login` requires a signed session cookie, and unauthenticated requests are served `login.html` instead. There's still no per-user identity — the password gates the one and only dataset, it doesn't distinguish users. The visual **threshold** scene (see glossary) remains purely a scene transition, unrelated to this — the password gate sits in front of it, not inside it.
+- **Sound:** optional, minimal. At most one soft tone on submit, off by default. Not a priority for MVP.
 
 ---
 
@@ -25,113 +24,75 @@
 
 | Term | Meaning |
 |---|---|
-| **Void / Universe** | The dark, vast space the tree stands in. The only light source is the tree. |
-| **Tree** | One singular generated organism — the aggregate for a "season." A user grows many over time. |
-| **Intention** | A **named seed** the witness offers at planting — `fortitude`, `wisdom`, … (5–8), plus **"let the universe choose."** Picks the **species archetype**. **[revises brief]** — brief withheld all fingerprint choice; we let you choose the *intention* (ceremony), the universe still decides the *form*. |
-| **Archetype** | A hand-authored **silhouette family** (5–8). Guarantees every tree sits on a beautiful manifold. Selected by Intention. |
-| **Variation seed** | Random seed minted at planting; rolls the exact shape *within* the archetype (angles, taper, curl, asymmetry). Makes each tree singular. |
-| **Fingerprint (Permanent traits)** | Archetype + variation seed + **palette**. Fixed at planting, **never changes** for that tree. |
-| **Palette** | The one visual choice: *"let the universe decide"* (derived from seed) or *"choose"* (curated set). Each Intention carries a default palette tendency you can override. |
-| **Entry** | An immutable story you write. Has a **type**, text, timestamp, **texture**, and a witness response. Can be **hidden**, never deleted/edited. |
-| **Entry type** | `win` / `failure` / `struggle` / `vent`. **Explicitly picked** by you (styled in-world as motes/words, not a form). All four equal. |
-| **Texture** | Qualitative words the witness LLM infers per entry (`heavy`, `turbulent`, `tender`, `luminous`, `numb`, + rough intensity). **Internal only — never shown as a number or chart.** |
-| **Witness** | A dim, translucent **smoky spirit figure** near the tree (kept faint so the tree owns the light). Responds to **every** entry — short, tailored, varied register, **often just presence rather than a reply**. Offers seeds at planting/reseeding. **Clicked → it attends: greeting + the four words (write, primary); the quiet things (re-read / past trees / sound / account) are a subordinate affordance off the same moment.** **[revises: was a faint star]** |
-| **Climate / Weather** | The living-layer state derived from recent textures: hue, mist, bloom, particles **and motion (sway, curl, quickness)**. Character only — never size or health. **[revises: motion added]** |
-| **Stage clock** | *Deferred past v1.* Sapling stage and day-based transitions are cut from v1 (plant straight to a tree; maturity is size-driven). **[revises: v1 has the size clock only]** |
-| **Size clock** | Counted in **entries**. Every entry adds size/density, **asymptotically** toward a soft ceiling (no shapeless mass). **Never shrinks** (holds near the ceiling); reaching full-grown triggers maturity. |
-| **Grove / Collection** | A user's trees over time. **v1: a list in the quiet panel + travel into an archived tree (read-only).** Faint background silhouettes deferred. |
-| **Threshold** | The non-diegetic auth boundary (Gargantua landing → register/login). |
+| **Threshold** | The opening scene (`gargantua.html`): a black hole at rest, with a header nav (Home / Explore / Credits), a title ("Whisper into the Universe"), a subtitle, and a **Begin Journey** button — matching the earlier landing-page mockup. Only the threshold carries this UI; the void stays bare. The black hole is a static render — no drag-to-orbit — since dragging kept invalidating the renderer's TAA accumulation and forcing continuous full-cost re-rendering; it now converges once and idles. Pressing Begin Journey snapshots the current frame as a still image, stops the live renderer, and runs a pulsing hyper-zoom (one pulse, then an accelerating zoom-out with rising brightness) on that snapshot via cheap CSS animation — no swirl, no further shader cost during the transition; pressing it again mid-transition skips straight to the void. Shown on *every* visit — nothing tracks whether you've crossed it before. Purely a scene transition — no authentication, no identity, no accounts. Kept from the earlier build; the auth/login concept behind it was not. |
+| **Void** | The dark, empty scene. No ground, no horizon, nothing but black — you are inside a black hole. Arrived at by crossing the threshold. |
+| **Spirit** | The single glowing circle at the center of the void. The witness. Fixed shape and size — it does not grow, change palette, or accumulate visual history. Idles at a resting glow; pulses brighter for a few seconds on submit. |
+| **Session** | One visit's pass through the four prompts, submitted together. |
+| **Prompt** | One of the four fixed questions, always offered in this order: `failed`, `worked`, `missed`, `next`. |
+| **Entry** | One saved answer: prompt type + text + timestamp. Immutable once saved for MVP (no edit/delete). |
+| **Witness line** | One of a small fixed set of short acknowledgment strings shown after a session is submitted. Never blank, never advice. |
 
 ---
 
 ## 3. Entities & relationships
 
 ```
-User (Supabase auth)
- └── Tree  (many; exactly one is `current`)
-      ├── seed fields: intention, variation_seed, palette_choice
-      ├── lifecycle: created_at, matured_at?, status(active|matured|archived), is_current
-      ├── Entry (many)
-      │    ├── type, text, created_at
-      │    ├── texture_tags (jsonb, internal)
-      │    └── hidden (bool)
-      └── WitnessUtterance (many)
-           ├── text, register, created_at
-           └── entry_id? (null for planting / ambient utterances)
+Session
+ ├── id
+ ├── created_at
+ └── Entry (0..4)
+      ├── session_id (FK → Session.id)
+      ├── prompt     (failed | worked | missed | next)
+      ├── text
+      └── created_at
 ```
 
-- **Climate is derived, not stored** (cached; recomputed on new entry / load).
-- **Tree geometry is derived, not stored** — a pure function of `(intention, variation_seed, visible_entry_count, growth_version)`; **content never touches shape** (only count grows it), baked to a sprite for drawing. **[revises: count, not ordered entries]**
+`Session` is a real row in SQLite — its own `id` and `created_at` — not just a label for "entries submitted together." `Entry` rows foreign-key to it. This is what lets a zero-answer submission (all four prompts skipped) still be a recordable session, rather than nothing at all.
+
+No `User` entity — single local user is implicit. No `Tree`, `Archetype`, `VariationSeed`, `Palette`, `Climate`, or `Grove` — all removed with the tree-growth mechanic.
 
 ---
 
 ## 4. Invariants (the rules that must never break)
 
-1. **Content never diminishes the tree.** Size/density only grows or holds — never shrinks. Texture changes *character* only (hue/mist/bloom/particles), never size or health. A heavy month → deeper, mistier, cooler; never smaller or wilting.
-2. **The fingerprint is fixed at planting** (archetype + variation seed + palette) and never moves for that tree.
-3. **Both clocks only move forward.** Stage clock = distinct active days; size clock = entries. Neither decays. A three-month gap costs nothing — it's a homecoming, not a walk of shame.
-4. **The tree is regenerable from source.** Geometry = deterministic, *versioned* function of intention + variation seed + **visible-entry count**. Seeded PRNG only; no `Math.random()` at draw time. If render state is wiped, the exact tree rebuilds from the entries. **[revises: count, not ordered entries]**
-5. **Entries are immutable.** Never edited or deleted; may be *hidden* from re-reading. Hiding an entry excludes it from geometry too — but nothing is destroyed and the recipe never develops holes.
-6. **Exactly one current tree** per user at a time.
-7. **A matured tree is a final, frozen shape** — but still writable and still *lives* (climate keeps responding); it just stops growing.
-8. **The witness responds to every entry:** short, tailored, register varies (wisdom / acknowledgment / pattern-noticing / near-silent ambient). It **never** advises unasked, cheerleads, diagnoses, performs enthusiasm, or asks a follow-up to farm engagement. Silence is a *register* ("you are heard"), not an absence.
-9. **No streaks, no scores, no shown numbers, no points/levels/badges, no social, no nagging, no clinical sliders.** The tree is a record, not a reward.
-10. **The climate is asymmetric — biased toward light.** Fast attack toward brightness/warmth (a bright entry uplifts *immediately*); slow release toward heaviness (heavy/messy input sinks *slowly*, with extra smoothing so it drifts, never thrashes).
+1. **Every entry is tied to exactly one of the four fixed prompts**, and prompts are always presented in the same order: failed, worked, missed, next.
+2. **No prompt is required.** Any or all four can be skipped in a session — but skipping isn't frictionless: if you hit submit with any prompt still blank, a confirmation appears ("Are you sure this is all for today?") naming which prompt(s) you left unanswered. Confirming proceeds with the submit as-is (skipped prompts still create no Entry row); declining returns you to fill in more. This is a nudge, not a gate — the skip still goes through if you confirm it — but it's worth noting the tension with prompt 1.md's "no scoring, no wrong answer" framing: the spirit still isn't grading you, but the app now asks once before letting you leave something out.
+3. **Nothing leaves the machine.** Entries persist only to the local SQLite file via the local server. Nothing is written until the confirmed submit — the four prompts live entirely in client-side state until then, at which point the Session row and its Entry rows are written together in one atomic save. There's no partial/in-progress Session sitting in the database; closing the tab mid-pass leaves nothing behind.
+4. **The spirit's appearance never encodes entry content or history.** No growth, no color-from-mood, no climate, no size clock. Its only reactive behavior is a brief pulse on submit — the glow means "listening," not a progress bar.
+5. **The witness always responds to a submitted session** with one short line from the static pool — never blank, never advice, never a follow-up question.
+6. **The threshold shows on every visit.** No flag, cookie, or record tracks whether you've crossed it before — same as the spirit, it has no memory of you.
 
 ---
 
 ## 5. The core loop
 
-0. **Threshold.** Gargantua landing → register/login (crossed once).
-1. **Arrive.** Dark void, your tree, silence. No dashboard, no badges, no prompts.
-2. **Give it something.** Witness: *"Welcome back {name}, tell us your story."* You pick a type (win/failure/struggle/vent) and write into the void.
-3. **The tree takes it — instantly.** A branch, a shift in light, a drift of particles + a tone. Felt, not announced. (Immediate; doesn't wait on the API.)
-4. **The witness answers.** A beat later — one short, tailored line of a varied register. Always *something*.
-5. **You leave.** No streak counter, no "come back tomorrow," no notification.
+1. **Open localhost.** The threshold: the black hole at rest.
+2. **Interact with it.** Zoom transition, no credentials — a scene change, not a login.
+3. **Arrive.** Dark void, spirit at its resting glow.
+4. **The spirit presents the four prompts**, one at a time, each skippable.
+5. **Submit.** If any prompt is still blank, a confirmation names what's unanswered and asks "are you sure this is all for today?" first. Once confirmed, entries save locally; the spirit pulses; one witness line appears.
+6. **Leave.** No reminders, no streaks, no scheduled notification.
 
 ---
 
-## 6. Lifecycle (state machine)
+## 6. Build order (MVP)
 
-```
-[auto-plant: universe-decides intention + palette → mint variation seed → planting burst + witness dialogue (replayable)]
-        │
-        ▼
-    TREE  ── grows in size/density with each entry, asymptotically; climate lives ──
-        │  reaches full-grown (tunable entry-count threshold)
-        ▼
-   MATURED ── final frozen shape; still writable; climate still lives
-        │  witness offers a new seed (gently; never nags)
-        │
-        ├── decline → keep writing into the matured tree (recorded, witnessed, climate moves, size frozen)
-        │
-        └── accept → matured tree → ARCHIVED (read-only, revisitable), new tree becomes CURRENT
-```
+Smallest thing that delivers the feeling first.
 
-- **[revises brief + v1]** No sapling stage and no day-based transitions in v1: plant straight to a tree, and maturity is **size-driven** (full-grown), not "31 active days."
-- **First run:** auto-plant (universe-decided fingerprint) → planting burst + short witness dialogue; the planting moment is **replayable** per tree.
-- **Grove (v1):** a list in the quiet panel → travel into any archived tree (read-only) and re-read its entries. Faint background silhouettes deferred.
+- **Phase 0 — Skeleton.** A local Node server serves a static page on localhost. No persistence yet.
+- **Phase 1 — The threshold.** `gargantua.html` is already a clean, self-contained WebGL2 black hole visual with no auth in it — the old auth lived in `web/src/auth.ts`/`auth-ui.ts` (deleted), which merely gated access to it from outside. Nothing to strip; what's missing is new behavior: a click/interact-to-enter trigger, the zoom transition (skippable via a second interaction), and navigation into the void once it completes.
+- **Phase 2 — The void + spirit.** Canvas2D glowing circle, centered, idle breathing animation.
+- **Phase 3 — The four prompts.** Sequential, skippable text inputs for failed / worked / missed / next, with a submit action.
+- **Phase 4 — Persistence.** Local SQLite file via the local server: an endpoint to save a session's entries, an endpoint to list past ones.
+- **Phase 5 — Witness reply.** Static line pool, random pick with no-immediate-repeat, shown alongside the submit pulse.
+- **Phase 6 (deferred) — Re-reading past entries.** A plain list view. No visualization needed for MVP.
+
+**Cut from scope (removed, not deferred):** Supabase, register/login/auth, OpenRouter or any LLM witness, tree/archetype/variation-seed/palette geometry, climate/weather system, maturity/reseed/grove, PixiJS. **Not cut:** the Gargantua scene itself — kept as the visual-only threshold (see glossary). It was never wired to auth directly; the auth lived one layer up in the deleted `web/` app and is what's actually gone.
 
 ---
 
-## 7. Build order (ponytail MVP → polish)
+## 7. Open, defaulted (flag if wrong)
 
-Smallest thing that delivers the feeling first; parked features noted.
-
-- **Phase 0 — Threshold.** `gargantua.html` + Supabase auth (email/password or magic link). Cross into an empty void.
-- **Phase 1 — The loop skeleton.** Arrive → type picker → write → store entry → witness responds (OpenRouter) → *something* reacts. Placeholder sapling. This proves the heart.
-- **Phase 2 — The tree.** Archetypes + seeded variation, deterministic recipe + cache, PixiJS render with parallax depth. Planting flow (intention/palette). Sapling → tree at 7 active days. Size grows per entry.
-- **Phase 3 — The living world.** Texture from the witness call → asymmetric rolling-decay climate → scene mapping (hue/mist/bloom/particles). Web Audio drone + event tones.
-- **Phase 4 — Lifecycle & grove.** Maturity at 31 active days, reseed flow, past-trees list + faint background silhouettes.
-- **Phase 5 — Re-reading & settings.** Tap-the-witness panel: past entries (with hide), past trees, mute, background-trees toggle, account.
-
-**Deferred / someday (parked, not cut):** full diegetic grove *navigation* (travel-to-a-light instead of a list); generative per-tree *music*; scaling past the Supabase free tier; deeper mobile-specific writing refinements.
-
----
-
-## 8. Open, defaulted (flag if wrong)
-
-- **Auth method:** Supabase **email + password** (magic-link is an easy swap). 
-- **Multiple entries per day:** allowed — each grows size once; the *stage* clock ticks only once per day.
-- **Number of intentions/archetypes:** start with ~6.
-- **Climate window:** rolling-decay over ~2 weeks / ~10 entries, asymmetric per Invariant 10.
+- **Local DB file location:** e.g. `./data/spirit.db` (gitignored).
+- **Multiple sessions per day:** allowed, no special handling — each is its own record.
+- **Prompt order:** fixed — failed, worked, missed, next — every time, no randomization.
